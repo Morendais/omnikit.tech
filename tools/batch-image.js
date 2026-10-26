@@ -118,12 +118,26 @@ const BatchImageStudio = {
     });
 
     // Action buttons
+    const cancelBtn = document.getElementById('batch-cancel-btn');
     startBtn?.addEventListener('click', () => {
       if (this.isProcessing) {
         this.shouldCancel = true;
         startBtn.disabled = true;
       } else {
         this.processBatch();
+      }
+    });
+
+    cancelBtn?.addEventListener('click', () => {
+      if (this.isProcessing) {
+        this.shouldCancel = true;
+        cancelBtn.classList.add('hidden');
+        if (startBtn) {
+          startBtn.disabled = true;
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+          startBtn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>${isRu ? 'Остановка...' : 'Stopping...'}</span>`;
+          if (window.lucide) lucide.createIcons();
+        }
       }
     });
 
@@ -265,7 +279,7 @@ const BatchImageStudio = {
     if (!tbody) return;
 
     tbody.innerHTML = '';
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
     this.items.forEach(item => {
       const tr = document.createElement('tr');
@@ -289,8 +303,9 @@ const BatchImageStudio = {
         ? `<button type="button" class="batch-dl-single p-1 text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition" data-id="${item.id}" title="${isRu ? 'Скачать файл' : 'Download file'}"><i data-lucide="download" class="w-4 h-4"></i></button>`
         : '';
 
+      const safeName = String(item.name || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
       tr.innerHTML = `
-        <td class="py-2.5 px-3 font-medium text-neutral-800 dark:text-neutral-200 truncate max-w-[180px]" title="${item.name}">${item.name}</td>
+        <td class="py-2.5 px-3 font-medium text-neutral-800 dark:text-neutral-200 truncate max-w-[180px]" title="${safeName}">${safeName}</td>
         <td class="py-2.5 px-3 text-neutral-500 font-mono">${this.formatBytes(item.size)}</td>
         <td class="py-2.5 px-3 text-neutral-800 dark:text-neutral-200 font-mono font-semibold" id="outsize-${item.id}">${outSizeText}</td>
         <td class="py-2.5 px-3" id="status-${item.id}">${statusHtml}</td>
@@ -321,7 +336,7 @@ const BatchImageStudio = {
     const progressFill = document.getElementById('batch-progress-fill');
     const progressText = document.getElementById('batch-progress-text');
     const statsText = document.getElementById('batch-stats-summary');
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
     if (progressFill) progressFill.style.width = `${percent}%`;
     if (progressText) {
@@ -358,7 +373,9 @@ const BatchImageStudio = {
     this.shouldCancel = false;
 
     const startBtn = document.getElementById('batch-start-btn');
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const cancelBtn = document.getElementById('batch-cancel-btn');
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+    if (cancelBtn) cancelBtn.classList.remove('hidden');
     if (startBtn) {
       startBtn.innerHTML = `<i data-lucide="square" class="w-4 h-4"></i> <span>${isRu ? 'Остановить' : 'Stop'}</span>`;
       if (window.lucide) lucide.createIcons();
@@ -398,6 +415,7 @@ const BatchImageStudio = {
 
     this.isProcessing = false;
     this.shouldCancel = false;
+    if (cancelBtn) cancelBtn.classList.add('hidden');
     if (startBtn) {
       startBtn.disabled = false;
       startBtn.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i> <span>${isRu ? 'Обработать всё' : 'Process all'}</span>`;
@@ -438,7 +456,15 @@ const BatchImageStudio = {
     }
   },
 
-  loadImage(file) {
+  // Decode off the main thread when possible (keeps the UI fluid on large
+  // photos); fall back to <img> for exotic codecs. Consumers read dimensions
+  // as `img.naturalWidth || img.width`, which both sources satisfy.
+  async loadImage(file) {
+    if (typeof createImageBitmap === 'function') {
+      try {
+        return await createImageBitmap(file);
+      } catch (_) { /* unsupported codec — fall through to <img> decode */ }
+    }
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
@@ -581,7 +607,7 @@ const BatchImageStudio = {
     const statusCell = document.getElementById(`status-${item.id}`);
     const outSizeCell = document.getElementById(`outsize-${item.id}`);
     const actionCell = document.getElementById(`action-${item.id}`);
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
     if (outSizeCell && item.outputSize > 0) {
       outSizeCell.textContent = this.formatBytes(item.outputSize);
@@ -636,7 +662,7 @@ const BatchImageStudio = {
       folder.file(finalName, item.outputBlob);
     });
 
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
     const zipBtn = document.getElementById('batch-download-zip');
     if (zipBtn) {
       zipBtn.disabled = true;
@@ -719,9 +745,7 @@ const BatchImageStudio = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.BatchImageStudio = BatchImageStudio;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.BatchImageStudio = BatchImageStudio;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = BatchImageStudio;
 }

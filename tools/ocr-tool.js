@@ -8,6 +8,8 @@ const OcrTool = {
   currentFile: null,
   currentImage: null,
   isProcessing: false,
+  isCancelled: false,
+  currentWorker: null,
   tesseractLoaded: false,
 
   init() {
@@ -17,7 +19,7 @@ const OcrTool = {
   },
 
   t(ru, en) {
-    const lang = (window.I18N && window.I18N.currentLang) || 'ru';
+    const lang = (window.I18N && window.I18N.currentLang) || 'en';
     return lang === 'en' ? en : ru;
   },
 
@@ -74,7 +76,10 @@ const OcrTool = {
   },
 
   handleFile(file) {
-    if (!file || !file.type.startsWith('image/')) return;
+    if (!file || !file.type.startsWith('image/')) {
+      if (file && window.App) window.App.showToast((window.I18N?.currentLang || 'en') === 'ru' ? 'Выберите файл изображения' : 'Please select an image file', 'error');
+      return;
+    }
     this.currentFile = file;
 
     const reader = new FileReader();
@@ -133,9 +138,34 @@ const OcrTool = {
     this.setProgress(0, '');
   },
 
+  cancelRecognition() {
+    this.isCancelled = true;
+    this.isProcessing = false;
+    if (this.currentWorker) {
+      try {
+        this.currentWorker.terminate();
+      } catch (e) {
+        console.warn('Worker terminate error:', e);
+      }
+      this.currentWorker = null;
+    }
+    const startBtn = document.getElementById('ocr-start-btn');
+    if (startBtn) startBtn.disabled = false;
+    this.setProgress(0, '');
+    const progContainer = document.getElementById('ocr-progress-container');
+    if (progContainer) progContainer.classList.add('hidden');
+    if (window.TextTools) {
+      TextTools.showToast(this.t('Распознавание отменено', 'Recognition cancelled'));
+    }
+  },
+
   bindActions() {
-    document.getElementById('ocr-reset-btn')?.addEventListener('click', () => this.reset());
+    document.getElementById('ocr-reset-btn')?.addEventListener('click', () => {
+      this.reset();
+      document.getElementById('ocr-file-input')?.click();
+    });
     document.getElementById('ocr-start-btn')?.addEventListener('click', () => this.startRecognition());
+    document.getElementById('ocr-cancel-btn')?.addEventListener('click', () => this.cancelRecognition());
 
     // Copy result
     document.getElementById('ocr-copy-btn')?.addEventListener('click', () => {
@@ -310,6 +340,7 @@ const OcrTool = {
   async startRecognition() {
     if (!this.currentImage || this.isProcessing) return;
 
+    this.isCancelled = false;
     this.isProcessing = true;
     const startBtn = document.getElementById('ocr-start-btn');
     const resultText = document.getElementById('ocr-result-text');
@@ -319,50 +350,97 @@ const OcrTool = {
 
     try {
       await this.ensureTesseractLoaded();
+      if (this.isCancelled) return;
 
       this.setProgress(15, this.t('Подготовка изображения и модели...', 'Preparing image and language model...'));
       const sourceCanvas = this.getPreprocessedCanvas();
+      if (this.isCancelled) return;
 
-      const { data } = await window.Tesseract.recognize(sourceCanvas, lang, {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            const pct = Math.round((m.progress || 0) * 100);
-            this.setProgress(20 + Math.round(pct * 0.78), `${this.t('Распознавание текста', 'Recognizing text')}: ${pct}%`);
-          } else if (m.status === 'loading tesseract core') {
-            this.setProgress(10, this.t('Загрузка ядра WASM...', 'Loading WebAssembly Core...'));
-          } else if (m.status.includes('loading language')) {
-            this.setProgress(18, this.t('Загрузка языкового словаря...', 'Downloading language dictionary...'));
-          } else if (m.status.includes('initializing api')) {
-            this.setProgress(22, this.t('Инициализация нейросети...', 'Initializing neural pipeline...'));
+      if (window.Tesseract && typeof window.Tesseract.createWorker === 'function') {
+        const worker = await window.Tesseract.createWorker(lang, 1, {
+          logger: (m) => {
+            if (this.isCancelled) return;
+            if (m.status === 'recognizing text') {
+              const pct = Math.round((m.progress || 0) * 100);
+              this.setProgress(20 + Math.round(pct * 0.78), `${this.t('Распознавание текста', 'Recognizing text')}: ${pct}%`);
+            } else if (m.status === 'loading tesseract core') {
+              this.setProgress(10, this.t('Загрузка ядра WASM...', 'Loading WebAssembly Core...'));
+            } else if (m.status && m.status.includes('loading language')) {
+              this.setProgress(18, this.t('Загрузка языкового словаря...', 'Downloading language dictionary...'));
+            } else if (m.status && m.status.includes('initializing api')) {
+              this.setProgress(22, this.t('Инициализация нейросети...', 'Initializing neural pipeline...'));
+            }
           }
-        },
-        preserve_interword_spaces: '1'
-      });
+        });
+        this.currentWorker = worker;
+        if (this.isCancelled) {
+          await worker.terminate();
+          this.currentWorker = null;
+          return;
+        }
+        const { data } = await worker.recognize(sourceCanvas);
+        await worker.terminate();
+        this.currentWorker = null;
+        if (this.isCancelled) return;
 
-      this.setProgress(100, this.t('Готово!', 'Done!'));
-      const cleanText = (data.text || '').trim();
+        this.setProgress(100, this.t('Готово!', 'Done!'));
+        const cleanText = (data.text || '').trim();
 
-      if (resultText) {
-        resultText.value = cleanText || this.t('(Текст на изображении не обнаружен)', '(No text detected in image)');
-        this.updateStats(cleanText);
-      }
+        if (resultText) {
+          resultText.value = cleanText || this.t('(Текст на изображении не обнаружен)', '(No text detected in image)');
+          this.updateStats(cleanText);
+        }
 
-      if (window.TextTools) {
-        TextTools.showToast(this.t('Распознавание успешно завершено!', 'OCR completed successfully!'));
+        if (window.TextTools) {
+          TextTools.showToast(this.t('Распознавание успешно завершено!', 'OCR completed successfully!'));
+        }
+      } else {
+        const { data } = await window.Tesseract.recognize(sourceCanvas, lang, {
+          logger: (m) => {
+            if (this.isCancelled) return;
+            if (m.status === 'recognizing text') {
+              const pct = Math.round((m.progress || 0) * 100);
+              this.setProgress(20 + Math.round(pct * 0.78), `${this.t('Распознавание текста', 'Recognizing text')}: ${pct}%`);
+            } else if (m.status === 'loading tesseract core') {
+              this.setProgress(10, this.t('Загрузка ядра WASM...', 'Loading WebAssembly Core...'));
+            } else if (m.status && m.status.includes('loading language')) {
+              this.setProgress(18, this.t('Загрузка языкового словаря...', 'Downloading language dictionary...'));
+            } else if (m.status && m.status.includes('initializing api')) {
+              this.setProgress(22, this.t('Инициализация нейросети...', 'Initializing neural pipeline...'));
+            }
+          },
+          preserve_interword_spaces: '1'
+        });
+        if (this.isCancelled) return;
+
+        this.setProgress(100, this.t('Готово!', 'Done!'));
+        const cleanText = (data.text || '').trim();
+
+        if (resultText) {
+          resultText.value = cleanText || this.t('(Текст на изображении не обнаружен)', '(No text detected in image)');
+          this.updateStats(cleanText);
+        }
+
+        if (window.TextTools) {
+          TextTools.showToast(this.t('Распознавание успешно завершено!', 'OCR completed successfully!'));
+        }
       }
     } catch (err) {
+      if (this.isCancelled) return;
       console.error('OCR Error:', err);
       this.setProgress(0, `${this.t('Ошибка распознавания: ', 'Recognition error: ')}${err.message}`);
       if (resultText) {
         resultText.value = `${this.t('Ошибка: ', 'Error: ')}${err.message}`;
       }
     } finally {
-      this.isProcessing = false;
-      if (startBtn) startBtn.disabled = false;
-      setTimeout(() => {
-        const progContainer = document.getElementById('ocr-progress-container');
-        if (progContainer && !this.isProcessing) progContainer.classList.add('hidden');
-      }, 2500);
+      if (!this.isCancelled) {
+        this.isProcessing = false;
+        if (startBtn) startBtn.disabled = false;
+        setTimeout(() => {
+          const progContainer = document.getElementById('ocr-progress-container');
+          if (progContainer && !this.isProcessing) progContainer.classList.add('hidden');
+        }, 2500);
+      }
     }
   },
 
@@ -397,9 +475,7 @@ const OcrTool = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.OcrTool = OcrTool;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.OcrTool = OcrTool;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = OcrTool;
 }

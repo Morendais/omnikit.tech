@@ -31,7 +31,7 @@ const ImageTools = {
     if (!dropzone || !input) return;
 
     const handleFile = (file) => {
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       if (!file || !file.type.startsWith('image/')) {
         alert(isRu ? 'Пожалуйста, выберите файл изображения (JPG, PNG, WebP).' : 'Please select a valid image file (JPG, PNG, WebP).');
         return;
@@ -39,19 +39,19 @@ const ImageTools = {
       this.currentFile = file;
       origSizeEl.textContent = this.formatBytes(file.size);
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          this.currentImage = img;
-          previewOrig.src = e.target.result;
-          controls.classList.remove('hidden');
-          dropzone.classList.add('hidden');
-          this.processCompression();
-        };
-        img.src = e.target.result;
+      const objUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        this.currentImage = img;
+        previewOrig.src = objUrl;
+        controls.classList.remove('hidden');
+        dropzone.classList.add('hidden');
+        this.processCompression();
       };
-      reader.readAsDataURL(file);
+      img.onerror = () => {
+        URL.revokeObjectURL(objUrl);
+      };
+      img.src = objUrl;
     };
 
     dropzone.addEventListener('click', () => input.click());
@@ -66,9 +66,13 @@ const ImageTools = {
       if (e.target.files.length) handleFile(e.target.files[0]);
     });
 
+    let compressRaf = null;
     qualitySlider.addEventListener('input', (e) => {
       qualityVal.textContent = e.target.value + '%';
-      this.processCompression();
+      if (compressRaf) cancelAnimationFrame(compressRaf);
+      compressRaf = requestAnimationFrame(() => {
+        this.processCompression();
+      });
     });
 
     const resetBtn = document.getElementById('compress-reset');
@@ -110,7 +114,7 @@ const ImageTools = {
       const previewComp = document.getElementById('compress-preview-comp');
       const previewOrig = document.getElementById('compress-preview-orig');
       const downloadBtn = document.getElementById('compress-download');
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
       // Smart compression guard: if compressed >= original, keep original without quality loss
       const isOptimallyCompressed = blob.size >= this.currentFile.size;
@@ -194,6 +198,10 @@ const ImageTools = {
 
     const handleFile = async (file) => {
       if (!file) return;
+      if (!file.type.startsWith('image/') && !/.(heic|heif|jpe?g|png|webp|bmp|ico)$/i.test(file.name)) {
+        if (window.App) window.App.showToast((window.I18N?.currentLang || 'en') === 'ru' ? 'Выберите файл изображения' : 'Please select an image file', 'error');
+        return;
+      }
       fileName = file.name.substring(0, file.name.lastIndexOf('.')) || 'image';
 
       const isHeic = /\.(heic|heif)$/i.test(file.name) || (file.type && file.type.includes('heic'));
@@ -201,38 +209,32 @@ const ImageTools = {
         try {
           const convertedBlob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.95 });
           const singleBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-              sourceImage = img;
-              controls.classList.remove('hidden');
-              dropzone.classList.add('hidden');
-              document.getElementById('converter-preview').src = e.target.result;
-              document.getElementById('converter-info').textContent = `${file.name} (${this.formatBytes(file.size)})`;
-            };
-            img.src = e.target.result;
+          const heicUrl = URL.createObjectURL(singleBlob);
+          const img = new Image();
+          img.onload = () => {
+            sourceImage = img;
+            controls.classList.remove('hidden');
+            dropzone.classList.add('hidden');
+            document.getElementById('converter-preview').src = heicUrl;
+            document.getElementById('converter-info').textContent = `${file.name} (${this.formatBytes(file.size)})`;
           };
-          reader.readAsDataURL(singleBlob);
+          img.src = heicUrl;
           return;
         } catch (err) {
           console.warn('heic2any decoding issue, attempting standard read:', err);
         }
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new Image();
-        img.onload = () => {
-          sourceImage = img;
-          controls.classList.remove('hidden');
-          dropzone.classList.add('hidden');
-          document.getElementById('converter-preview').src = e.target.result;
-          document.getElementById('converter-info').textContent = `${file.name} (${this.formatBytes(file.size)})`;
-        };
-        img.src = e.target.result;
+      const objUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        sourceImage = img;
+        controls.classList.remove('hidden');
+        dropzone.classList.add('hidden');
+        document.getElementById('converter-preview').src = objUrl;
+        document.getElementById('converter-info').textContent = `${file.name} (${this.formatBytes(file.size)})`;
       };
-      reader.readAsDataURL(file);
+      img.src = objUrl;
     };
 
     dropzone.addEventListener('click', () => input.click());
@@ -261,25 +263,63 @@ const ImageTools = {
       ctx.drawImage(sourceImage, 0, 0);
 
       if (targetFormat === 'image/heic') {
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+        const msg = isRu 
+          ? 'Браузерный экспорт в HEIC не поддерживается стандартами HTML5. Изображение сохранено в максимальном качестве (JPG 95%).'
+          : 'In-browser encoding to HEIC is not supported by HTML5 standards. Image saved in maximum quality (JPG 95%).';
+        if (window.App?.showToast) {
+          window.App.showToast(msg, 'info');
+        } else {
+          alert(msg);
+        }
         canvas.toBlob((blob) => {
-          const fileNameWithExt = `${fileName}_converted.heic`;
+          const fileNameWithExt = `${fileName}_converted.jpg`;
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.download = fileNameWithExt;
           a.href = url;
           a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
         }, 'image/jpeg', 0.95);
         return;
       }
 
       if (targetFormat === 'image/x-icon') {
-        canvas.toBlob((blob) => {
-          const fileNameWithExt = `${fileName}_favicon.ico`;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.download = fileNameWithExt;
-          a.href = url;
-          a.click();
+        // True Windows ICO format (ICONDIR + ICONDIRENTRY + PNG payload)
+        canvas.toBlob(async (pngBlob) => {
+          try {
+            const pngBuf = await pngBlob.arrayBuffer();
+            const count = 1;
+            const headerSize = 6;
+            const dirSize = 16;
+            const dataOffset = headerSize + dirSize;
+            const totalSize = dataOffset + pngBuf.byteLength;
+            const icoBuf = new ArrayBuffer(totalSize);
+            const view = new DataView(icoBuf);
+            view.setUint16(0, 0, true);
+            view.setUint16(2, 1, true); // Type 1 = ICO
+            view.setUint16(4, count, true);
+            const w = canvas.width >= 256 ? 0 : canvas.width;
+            const h = canvas.height >= 256 ? 0 : canvas.height;
+            view.setUint8(6, w);
+            view.setUint8(7, h);
+            view.setUint8(8, 0); // Palette
+            view.setUint8(9, 0); // Reserved
+            view.setUint16(10, 1, true); // Color planes
+            view.setUint16(12, 32, true); // 32 bpp
+            view.setUint32(14, pngBuf.byteLength, true);
+            view.setUint32(18, dataOffset, true);
+            new Uint8Array(icoBuf, dataOffset).set(new Uint8Array(pngBuf));
+            const icoBlob = new Blob([icoBuf], { type: 'image/x-icon' });
+            const url = URL.createObjectURL(icoBlob);
+            const a = document.createElement('a');
+            a.download = `${fileName}_favicon.ico`;
+            a.href = url;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+          } catch (e) {
+            console.error('ICO export error:', e);
+          }
         }, 'image/png');
         return;
       }
@@ -334,7 +374,7 @@ const ImageTools = {
             const url = URL.createObjectURL(blob);
             const safeBase = rawBase.replace(/[^\wа-яА-ЯёЁ.-]/g, '_');
             const safeDownloadName = `clean_${safeBase}.${outExt}`;
-            const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+            const isRu = (window.I18N?.currentLang || 'en') === 'ru';
             statusBox.innerHTML = `
               <div class="p-5 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 text-center">
                 <div class="w-10 h-10 rounded border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 flex items-center justify-center mx-auto mb-3">
@@ -385,9 +425,7 @@ const ImageTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.ImageTools = ImageTools;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.ImageTools = ImageTools;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = ImageTools;
 }

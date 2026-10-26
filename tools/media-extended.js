@@ -356,7 +356,7 @@ const MediaExtended = {
 
     const convertHeic = async (file) => {
       if (!file) return;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       const isHeicInput = /\.(heic|heif)$/i.test(file.name) || (file.type && file.type.includes('heic'));
       const isImageToHeic = !isHeicInput && (file.type?.startsWith('image/') || /\.(jpe?g|png|webp|bmp)$/i.test(file.name));
 
@@ -560,9 +560,7 @@ const MediaExtended = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.MediaExtended = MediaExtended;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.MediaExtended = MediaExtended;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = MediaExtended;
 }

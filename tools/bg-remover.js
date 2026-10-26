@@ -1,12 +1,14 @@
 /**
  * OmniKit In-Browser Background Remover
  * 100% Client-Side In-Browser Segmentation Engine
- * Powered by U2-Net INT8 Neural Network via ONNX Runtime Web WASM SIMD.
+ * Model: U²-Net INT8 (42 MB, downloaded once, cached forever),
+ * via ONNX Runtime Web (WebGPU first, WASM fallback). Continuous alpha matte.
  * Zero server uploads. Zero external CDNs.
  */
 
 const BgRemover = {
   isProcessing: false,
+  isCancelled: false,
   currentFile: null,
   originalImage: null,
   cutoutImage: null,
@@ -15,12 +17,24 @@ const BgRemover = {
   session: null,
   isModelLoading: false,
   _cachedBuffer: null,
+  _cachedBufferId: null,
+  _fallbackNote: null,
+  _gpuBanned: false,
+  _sessionUsedGpu: false,
 
-  MODEL: {
-    id: 'u2net_int8',
-    url: '/assets/models/bg/u2net_int8.onnx',
-    sizeBytes: 44212603,
-    sizeMB: '42.1'
+  // One small local model by design (user decision): a 42 MB download once,
+  // cached forever — good enough for simple cutouts (products, portraits on
+  // plain backgrounds), and the page never makes people wait for 94–170 MB.
+  MODELS: {
+    quality: { id: 'u2net_int8', name: 'U²-Net', url: '/assets/models/bg/u2net_int8.onnx', sizeBytes: 44212603, sizeMB: '42', inputSize: 320, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225] }
+  },
+
+  MODEL_CHAIN: ['quality'],
+
+  _activeKey: null,
+
+  get MODEL() {
+    return this.MODELS[this._activeKey || 'quality'];
   },
 
   CACHE_NAME: 'omnikit_model_cache_v1',
@@ -28,8 +42,63 @@ const BgRemover = {
   DB_VERSION: 1,
   STORE_NAME: 'bg_models',
 
+  t(key, fallbackRu, fallbackEn) {
+    if (window.I18N && typeof window.I18N.t === 'function') {
+      const v = window.I18N.t(key);
+      if (v && v !== key) return v;
+    }
+    return ((window.I18N?.currentLang || 'en') === 'ru') ? fallbackRu : fallbackEn;
+  },
+
   init() {
     this.bindEvents();
+    this.purgeRetiredModels();
+    this.renderLocalModelNote();
+    // Standalone page visit: warm the model quietly in the background so the
+    // first cutout starts instantly instead of showing a download bar.
+    const onBgPage = (location.pathname || '').includes('background-remover');
+    if (onBgPage) this.preloadSession();
+  },
+
+  // Called from App.openTool('background-remover') on SPA-style navigation.
+  preloadSession() {
+    if (this.session || this.isModelLoading || this.isProcessing) return;
+    const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1200));
+    idle(() => { if (!this.session && !this.isModelLoading) this.getSession().catch(() => {}); });
+  },
+
+  // Honest expectation-setting right under the dropzone: local model, simple
+  // cutouts, one-time download that stays cached.
+  renderLocalModelNote() {
+    const dropzone = document.getElementById('bg-dropzone');
+    if (!dropzone) return;
+    const note = document.createElement('p');
+    note.id = 'bg-local-note';
+    note.className = 'text-[11px] leading-snug text-neutral-500 dark:text-neutral-400 mt-2 text-center';
+    note.textContent = this.t('bg_local_note',
+      'Локальная нейросеть — подходит для несложных удалений фона (товары, портреты на однородном фоне). Скачивается один раз (~42 МБ) и сохраняется в кэше — файлы не покидают ваше устройство.',
+      'Local neural network — good for simple background removal (products, portraits on plain backgrounds). Downloaded once (~42 MB) and cached — your files never leave the device.');
+    const old = document.getElementById('bg-local-note');
+    if (old) old.replaceWith(note);
+    else dropzone.insertAdjacentElement('afterend', note);
+  },
+
+  // Free disk space from models that are no longer shipped (e.g. broken q8).
+  async purgeRetiredModels() {
+    const retiredUrls = ['/assets/models/bg/isnet_q8.onnx', '/assets/models/bg/u2netp.onnx', '/assets/models/bg/isnet_fp32.onnx', '/assets/models/bg/birefnet_lite_fp16.onnx'];
+    const retiredIds = ['isnet_q8', 'u2netp', 'isnet_fp32', 'birefnet_lite'];
+    try {
+      if (typeof caches !== 'undefined') {
+        const cache = await caches.open(this.CACHE_NAME);
+        for (const u of retiredUrls) cache.delete(u).catch(() => {});
+      }
+      const db = await this.getDB();
+      if (db) {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        for (const id of retiredIds) { try { store.delete(id); } catch (_) {} }
+      }
+    } catch (_) {}
   },
 
   bindEvents() {
@@ -68,6 +137,7 @@ const BgRemover = {
     });
 
     resetBtn?.addEventListener('click', () => this.reset());
+    document.getElementById('bg-cancel-btn')?.addEventListener('click', () => this.cancel());
     downloadBtn?.addEventListener('click', () => this.downloadResult());
 
     // Background color toggles
@@ -93,6 +163,12 @@ const BgRemover = {
       this.activeBgMode = 'custom';
       this.renderCanvas();
     });
+  },
+
+  cancel() {
+    this.isCancelled = true;
+    this.isProcessing = false;
+    this.reset();
   },
 
   reset() {
@@ -148,8 +224,8 @@ const BgRemover = {
 
   async getCachedModel(id) {
     try {
-      // 1. Check in-memory buffer
-      if (this._cachedBuffer && this._cachedBuffer.byteLength > 10000000) {
+      // 1. Check in-memory buffer (must belong to the requested model AND be complete)
+      if (this._cachedBufferId === id && this._cachedBuffer && this._cachedBuffer.byteLength === this.MODEL.sizeBytes) {
         return this._cachedBuffer.slice(0);
       }
 
@@ -160,10 +236,13 @@ const BgRemover = {
           const match = await cache.match(this.MODEL.url);
           if (match) {
             const buf = await match.arrayBuffer();
-            if (buf && buf.byteLength > 10000000) {
+            if (buf && buf.byteLength === this.MODEL.sizeBytes) {
               this._cachedBuffer = buf.slice(0);
+              this._cachedBufferId = id;
               return buf;
             }
+            // Truncated/partial download must never shadow a fresh one
+            cache.delete(this.MODEL.url).catch(() => {});
           }
         } catch (_) {}
       }
@@ -177,9 +256,16 @@ const BgRemover = {
         const req = store.get(id);
         req.onsuccess = () => {
           const res = req.result;
-          if (res && res.byteLength > 10000000) {
+          if (res && res.byteLength === this.MODEL.sizeBytes) {
             this._cachedBuffer = res.slice(0);
+            this._cachedBufferId = id;
             resolve(res);
+          } else if (res) {
+            try {
+              const tx2 = db.transaction(this.STORE_NAME, 'readwrite');
+              tx2.objectStore(this.STORE_NAME).delete(id);
+            } catch (_) {}
+            resolve(null);
           } else {
             resolve(null);
           }
@@ -196,6 +282,7 @@ const BgRemover = {
       const copy1 = buffer.slice(0);
       const copy2 = buffer.slice(0);
       this._cachedBuffer = copy1;
+      this._cachedBufferId = id;
 
       // 1. Save to CacheStorage API
       if (typeof caches !== 'undefined') {
@@ -234,8 +321,37 @@ const BgRemover = {
       return cached;
     }
 
-    if (onProgress) onProgress(10, isRu ? 'Скачивается только 1 раз (~42 МБ) — сохраняется в постоянном кэше...' : 'Downloading once only (~42 MB) — saving permanently in browser cache...');
+    if (onProgress) onProgress(10, isRu
+      ? `Скачивается нейросеть ${this.MODEL.name} (~${this.MODEL.sizeMB} МБ, только один раз — потом из кэша)...`
+      : `Downloading ${this.MODEL.name} neural network (~${this.MODEL.sizeMB} MB, once only — then cached)...`);
 
+    // A partial download must never reach the cache: on any failure or size
+    // mismatch, retry (bad connections on 170MB do happen) before giving up.
+    const MAX_ATTEMPTS = 3;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const buffer = await this.downloadModelOnce(onProgress, isRu);
+        if (buffer === null) return null; // cancelled
+        if (buffer.byteLength !== this.MODEL.sizeBytes) {
+          throw new Error(`Incomplete download: ${buffer.byteLength}/${this.MODEL.sizeBytes} bytes`);
+        }
+        await this.saveModelToCache(this.MODEL.id, buffer);
+        return buffer;
+      } catch (e) {
+        lastErr = e;
+        if (this.isCancelled) return null;
+        console.warn(`[bg-remover] model download attempt ${attempt}/${MAX_ATTEMPTS} failed:`, e && e.message);
+        if (attempt < MAX_ATTEMPTS && onProgress) {
+          onProgress(10, isRu ? 'Сбой загрузки, повтор...' : 'Download failed, retrying...');
+        }
+        await new Promise((r) => setTimeout(r, 600 * attempt));
+      }
+    }
+    throw lastErr || new Error('Model download failed');
+  },
+
+  async downloadModelOnce(onProgress, isRu) {
     const resp = await fetch(this.MODEL.url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} loading model`);
 
@@ -246,6 +362,10 @@ const BgRemover = {
     let received = 0;
 
     while (true) {
+      if (this.isCancelled) {
+        try { reader.cancel(); } catch (_) {}
+        return null;
+      }
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
@@ -256,7 +376,9 @@ const BgRemover = {
       if (onProgress) {
         onProgress(
           Math.max(10, Math.round(pct * 0.5)),
-          isRu ? `Скачивание модели (${mbReceived} / ${mbTotal} МБ, сохранение в кэш навсегда)...` : `Downloading model (${mbReceived} / ${mbTotal} MB, caching permanently)...`
+          isRu
+            ? `${this.MODEL.name}: загрузка модели (${mbReceived} / ${mbTotal} МБ, кэшируется навсегда)...`
+            : `${this.MODEL.name}: downloading model (${mbReceived} / ${mbTotal} MB, caching permanently)...`
         );
       }
     }
@@ -267,36 +389,141 @@ const BgRemover = {
       fullBuffer.set(chunk, offset);
       offset += chunk.byteLength;
     }
-
-    const buffer = fullBuffer.buffer;
-    await this.saveModelToCache(this.MODEL.id, buffer);
-    return buffer;
+    return fullBuffer.buffer;
   },
 
+  _failedModelIds() {
+    try { return (sessionStorage.getItem('bg_failed_models') || '').split(',').filter(Boolean); }
+    catch (_) { return []; }
+  },
+
+  // Concurrent-safe session getter: a quiet background preload and a user
+  // dropping a file must share one download, with the progress bar switching
+  // to whoever is watching right now.
   async getSession(onProgress) {
     if (this.session) return this.session;
-    const ok = await this.loadOrt();
+    if (typeof onProgress === 'function') this._onProgress = onProgress;
+    if (this._loadingPromise) {
+      try { return await this._loadingPromise; } catch (e) { return null; }
+    }
+    this._loadingPromise = this._createSession((pct, msg) => {
+      if (typeof this._onProgress === 'function') this._onProgress(pct, msg);
+      this.updatePreloadNote(pct);
+    });
+    try {
+      return await this._loadingPromise;
+    } finally {
+      this._loadingPromise = null;
+    }
+  },
+
+  updatePreloadNote(pct) {
+    if (this.isProcessing) return; // the real progress bar owns the screen
+    const note = document.getElementById('bg-local-note');
+    if (!note) return;
+    if (pct >= 60) {
+      if (this._notePct !== 'ready') { this._notePct = 'ready'; note.dataset.base = note.dataset.base || note.textContent; note.textContent = this.t('bg_preload_ready', 'Нейросеть готова — работает из кэша.', 'Neural network ready — runs from cache.'); }
+      return;
+    }
+    this._notePct = pct;
+    if (note.dataset.base === undefined) note.dataset.base = note.textContent;
+    note.textContent = `${note.dataset.base} · ${Math.max(0, Math.round(pct))}%`;
+  },
+
+  async _createSession(onProgress) {
     if (!ok || typeof ort === 'undefined') return null;
+
+    // Models that already failed in this tab (typically OOM on weak devices)
+    // are skipped for the session — no wasted 94MB+ downloads and init.
+    // A fresh tab/session retries.
+    if (!this._activeKey) {
+      const failed = this._failedModelIds();
+      const nextKey = this.MODEL_CHAIN.find((k) => !failed.includes(this.MODELS[k].id));
+      if (nextKey && nextKey !== 'quality') {
+        this._activeKey = nextKey;
+        this._fallbackNote = 'unavailable this session';
+      }
+    }
+
+    const chainIndex = this.MODEL_CHAIN.indexOf(this._activeKey || 'quality');
 
     try {
       const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       const buffer = await this.fetchModelBuffer(onProgress);
 
-      if (onProgress) onProgress(55, isRu ? 'Инициализация нейросети U2-Net...' : 'Initializing U2-Net neural engine...');
-      
-      // Pass a clone so ORT memory transfers never detach our cached buffer
-      this.session = await ort.InferenceSession.create(buffer.slice(0), {
-        executionProviders: ['wasm']
-      });
+      if (onProgress) onProgress(55, isRu ? 'Инициализация нейросети...' : 'Initializing neural engine...');
+
+      // Pass a clone so ORT memory transfers never detach our cached buffer.
+      // WebGPU first where available: faster and weights live in VRAM instead
+      // of the wasm heap (wasm-only devices with low memory are exactly where
+      // big fp32 models die).
+      const useGpu = !this._gpuBanned && typeof navigator !== 'undefined' && !!navigator.gpu;
+      const create = (eps) => ort.InferenceSession.create(buffer.slice(0), { executionProviders: eps });
+      try {
+        this.session = useGpu ? await create(['webgpu', 'wasm']) : await create(['wasm']);
+      } catch (e) {
+        if (!useGpu) throw e;
+        console.warn('[bg-remover] WebGPU init failed, retrying wasm-only:', e);
+        this.session = await create(['wasm']);
+      }
+      this._sessionUsedGpu = useGpu;
+
+      // The compiled session no longer needs the raw weights in RAM; the model
+      // stays in CacheStorage for next visits. Frees the model size in RAM.
+      this._cachedBuffer = null;
       return this.session;
     } catch (e) {
+      const nextKey = this.MODEL_CHAIN[chainIndex + 1];
+      if (nextKey) {
+        // Visible downgrade: the user must know why quality dropped
+        const failedName = this.MODEL.name;
+        const reason = String((e && e.message) || e).slice(0, 80);
+        console.warn(`[bg-remover] ${failedName} failed (${reason}), falling back to ${this.MODELS[nextKey].name}`);
+        try {
+          const failed = this._failedModelIds();
+          failed.push(this.MODELS[this.MODEL_CHAIN[chainIndex]].id);
+          sessionStorage.setItem('bg_failed_models', failed.join(','));
+        } catch (_) {}
+        this._fallbackNote = reason;
+        if (onProgress) {
+          const ru = (window.I18N?.currentLang || 'en') === 'ru';
+          onProgress(15, ru
+            ? `${failedName} не запустилась — включаю резервную ${this.MODELS[nextKey].name} (~${this.MODELS[nextKey].sizeMB} МБ)...`
+            : `${failedName} failed to start — switching to backup ${this.MODELS[nextKey].name} (~${this.MODELS[nextKey].sizeMB} MB)...`);
+        }
+        this._activeKey = nextKey;
+        this.session = null;
+        this._cachedBuffer = null;
+        this._cachedBufferId = null;
+        return this.getSession(onProgress);
+      }
       console.warn('Failed to initialize ONNX session:', e);
       return null;
     }
   },
 
+  // Cheap sanity check on a produced mask: it must have both a value spread
+  // and mass on at least one end of the range (background or foreground).
+  // A flat/NaN mid-gray mask means the execution backend miscomputed.
+  _maskLooksValid(maskData, minVal, maxVal) {
+    const range = maxVal - minVal;
+    if (!isFinite(range) || range < 1e-3) return false;
+    let nan = 0, lo = 0, hi = 0, cnt = 0;
+    const step = Math.max(1, Math.floor(maskData.length / 5000));
+    for (let i = 0; i < maskData.length; i += step) {
+      const v = maskData[i];
+      cnt++;
+      if (Number.isNaN(v)) { nan++; continue; }
+      const norm = (v - minVal) / range;
+      if (norm < 0.15) lo++;
+      else if (norm > 0.85) hi++;
+    }
+    if (!cnt || nan / cnt > 0.01) return false;
+    return (lo / cnt > 0.01) || (hi / cnt > 0.01);
+  },
+
   async neuralRemove(file, onProgress) {
-    const session = await this.getSession(onProgress);
+    let session = await this.getSession(onProgress);
     if (!session) throw new Error('Neural model unavailable');
 
     const isRu = (window.I18N?.currentLang || 'en') === 'ru';
@@ -313,7 +540,7 @@ const BgRemover = {
     const origW = img.naturalWidth || 800;
     const origH = img.naturalHeight || 600;
 
-    const inSize = 320;
+    const inSize = this.MODEL.inputSize || 320;
     const inCanvas = document.createElement('canvas');
     inCanvas.width = inSize;
     inCanvas.height = inSize;
@@ -323,8 +550,8 @@ const BgRemover = {
     const imgData = inCtx.getImageData(0, 0, inSize, inSize);
     const data = imgData.data;
 
-    const mean = [0.485, 0.456, 0.406];
-    const std = [0.229, 0.224, 0.225];
+    const mean = this.MODEL.mean;
+    const std = this.MODEL.std;
     const planeSize = inSize * inSize;
     const floatArr = new Float32Array(3 * planeSize);
 
@@ -342,9 +569,20 @@ const BgRemover = {
     feeds[session.inputNames[0]] = tensor;
 
     if (onProgress) onProgress(80, isRu ? 'Нейросетевая сегментация контуров...' : 'Neural segmentation in progress...');
-    const results = await session.run(feeds);
-    const outputTensor = results[session.outputNames[0]];
-    const maskData = outputTensor.data;
+    let results = await session.run(feeds);
+    let outputTensor = results[session.outputNames[0]];
+    let maskData = outputTensor.data;
+
+    // BiRefNet exports raw logits (±20): sigmoid them into a [0,1] matte BEFORE
+    // any normalization, otherwise min-max stretching turns the whole image
+    // into a ~50% translucent ghost (no opaque foreground left at all).
+    if (this.MODEL.sigmoidOutput) {
+      const sigmoided = new Float32Array(maskData.length);
+      for (let i = 0; i < maskData.length; i++) {
+        sigmoided[i] = 1 / (1 + Math.exp(-maskData[i]));
+      }
+      maskData = sigmoided;
+    }
 
     let minVal = Infinity, maxVal = -Infinity;
     for (let i = 0; i < maskData.length; i++) {
@@ -352,6 +590,28 @@ const BgRemover = {
       if (v < minVal) minVal = v;
       if (v > maxVal) maxVal = v;
     }
+
+    // A WebGPU EP can half-initialize (nodes silently left on another EP) and
+    // then emit a flat/NaN mask instead of throwing. Detect garbage output and
+    // recompute once on a pure-CPU session; ban WebGPU for this tab.
+    if (!this._maskLooksValid(maskData, minVal, maxVal) && this._sessionUsedGpu && !this._gpuBanned) {
+      console.warn('[bg-remover] WebGPU produced an invalid mask — switching to CPU-only and retrying');
+      this._gpuBanned = true;
+      this.session = null;
+      this._sessionUsedGpu = false;
+      session = await this.getSession(onProgress);
+      if (!session) throw new Error('Neural model unavailable');
+      results = await session.run(feeds);
+      outputTensor = results[session.outputNames[0]];
+      maskData = outputTensor.data;
+      minVal = Infinity; maxVal = -Infinity;
+      for (let i = 0; i < maskData.length; i++) {
+        const v = maskData[i];
+        if (v < minVal) minVal = v;
+        if (v > maxVal) maxVal = v;
+      }
+    }
+
     const valRange = (maxVal - minVal) || 1e-6;
 
     const maskCanvas = document.createElement('canvas');
@@ -361,17 +621,12 @@ const BgRemover = {
     const maskImgData = maskCtx.createImageData(inSize, inSize);
     const mData = maskImgData.data;
 
+    // Continuous alpha matte (rembg-style): the sigmoid output maps straight
+    // to opacity, so hair/fur semi-transparent zones survive. A hard threshold
+    // here is what used to eat hair strands and left crunchy edges.
     for (let i = 0; i < planeSize; i++) {
       const norm = (maskData[i] - minVal) / valRange;
-      let alpha;
-      if (norm <= 0.25) {
-        alpha = 0;
-      } else if (norm >= 0.75) {
-        alpha = 255;
-      } else {
-        const t = (norm - 0.25) / 0.50;
-        alpha = Math.round((t * t * (3 - 2 * t)) * 255);
-      }
+      const alpha = Math.max(0, Math.min(255, Math.round(norm * 255)));
       const idx = i * 4;
       mData[idx] = 255;
       mData[idx + 1] = 255;
@@ -468,6 +723,7 @@ const BgRemover = {
 
     this.currentFile = file;
     this.isProcessing = true;
+    this.isCancelled = false;
 
     const dropzone = document.getElementById('bg-dropzone');
     const loadingState = document.getElementById('bg-loading-state');
@@ -490,39 +746,46 @@ const BgRemover = {
     updateProgress(5, isRu ? 'Чтение файла...' : 'Reading image file...');
 
     try {
-      const originalDataUrl = await new Promise((resolve) => {
+      const originalDataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to read image file'));
         reader.readAsDataURL(file);
       });
 
       const origImg = new Image();
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         origImg.onload = resolve;
+        origImg.onerror = () => reject(new Error('Failed to decode image data'));
         origImg.src = originalDataUrl;
       });
       this.originalImage = origImg;
 
       const resultBlob = await this.removeBackground(file, updateProgress);
+      if (this.isCancelled) return;
 
       updateProgress(100, isRu ? 'Готово!' : 'Complete!');
       await new Promise(r => setTimeout(r, 60));
 
-      const resultDataUrl = await new Promise((resolve) => {
+      const resultDataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('Failed to read result blob'));
         reader.readAsDataURL(resultBlob);
       });
 
       const cutImg = new Image();
-      await new Promise((resolve) => {
+      await new Promise((resolve, reject) => {
         cutImg.onload = resolve;
+        cutImg.onerror = () => reject(new Error('Failed to decode result image'));
         cutImg.src = resultDataUrl;
       });
       this.cutoutImage = cutImg;
 
       loadingState?.classList.add('hidden');
       resultState?.classList.remove('hidden');
+
+      this.showModelNote();
 
       const origPreview = document.getElementById('bg-orig-preview');
       if (origPreview) origPreview.src = originalDataUrl;
@@ -535,6 +798,25 @@ const BgRemover = {
     } finally {
       this.isProcessing = false;
     }
+  },
+
+  // Always name the model that actually produced the cutout — the user must
+  // be able to tell what is running (and that it stays on the device).
+  showModelNote() {
+    const state = document.getElementById('bg-result-state');
+    if (!state) return;
+    let note = document.getElementById('bg-model-note');
+    if (!note) {
+      note = document.createElement('div');
+      note.id = 'bg-model-note';
+      state.insertBefore(note, state.firstChild);
+    }
+    const m = this.MODEL;
+    note.className = 'text-[11px] leading-snug text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 rounded-lg px-3 py-2';
+    note.textContent = this.t('bg_model_note',
+      `Локальная модель: ${m.name} (${m.sizeMB} МБ) — файлы не покидают устройство`,
+      `Local model: ${m.name} (${m.sizeMB} MB) — files never leave the device`)
+      .replace('{name}', m.name).replace('{mb}', m.sizeMB);
   },
 
   renderCanvas() {

@@ -60,7 +60,7 @@ const UtilityExtended = {
     document.getElementById('btn-translit-copy')?.addEventListener('click', () => {
       if (output.value) {
         navigator.clipboard.writeText(output.value).then(() => {
-          const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
           if (window.TextTools) TextTools.showToast(isRu ? 'Скопировано!' : 'Copied to clipboard!');
         });
       }
@@ -105,7 +105,7 @@ const UtilityExtended = {
         if (!text) return;
         output.value = this.csvToJson(text);
       } catch (err) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         alert((isRu ? 'Ошибка парсинга CSV: ' : 'CSV parsing error: ') + err.message);
       }
     });
@@ -117,7 +117,7 @@ const UtilityExtended = {
         if (!text) return;
         output.value = this.jsonToCsv(text);
       } catch (err) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         alert((isRu ? 'Ошибка конвертации: ' : 'Conversion error: ') + err.message);
       }
     });
@@ -125,7 +125,7 @@ const UtilityExtended = {
     document.getElementById('btn-table-copy')?.addEventListener('click', () => {
       if (output.value) {
         navigator.clipboard.writeText(output.value).then(() => {
-          const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
           if (window.TextTools) TextTools.showToast(isRu ? 'Скопировано!' : 'Copied to clipboard!');
         });
       }
@@ -364,7 +364,7 @@ const UtilityExtended = {
       document.getElementById(btnId)?.addEventListener('click', () => {
         if (inputEl?.value) {
           navigator.clipboard.writeText(inputEl.value).then(() => {
-            const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+            const isRu = (window.I18N?.currentLang || 'en') === 'ru';
             if (window.TextTools) TextTools.showToast(isRu ? 'Цвет скопирован в буфер!' : 'Color copied to clipboard!');
           });
         }
@@ -411,7 +411,7 @@ const UtilityExtended = {
         }
 
         try {
-          const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
           const decoded = this.decodeJwt(token);
           if (!decoded) throw new Error(isRu ? 'Некорректный формат токена (должно быть 3 части через точку)' : 'Invalid JWT token format (must have 3 parts separated by dots)');
 
@@ -436,7 +436,7 @@ const UtilityExtended = {
         } catch (err) {
           jwtHeader.value = '';
           jwtPayload.value = '';
-          const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
           const safeSpan = document.createElement('span');
           safeSpan.className = 'text-xs font-mono text-red-500';
           safeSpan.textContent = (isRu ? 'Ошибка: ' : 'Error: ') + err.message;
@@ -459,7 +459,7 @@ const UtilityExtended = {
           return;
         }
         // Detect seconds vs milliseconds
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         const date = val > 9999999999 ? new Date(val) : new Date(val * 1000);
         epochResult.textContent = isRu 
           ? `Локальное: ${date.toLocaleString()} • UTC: ${date.toUTCString()}`
@@ -470,9 +470,15 @@ const UtilityExtended = {
       epochInput.value = Math.floor(Date.now() / 1000);
       updateEpoch();
 
-      // Current live epoch clock
+      // Current live epoch clock with lifecycle check
       if (currentEpoch) {
-        setInterval(() => {
+        if (this._epochTimer) clearInterval(this._epochTimer);
+        this._epochTimer = setInterval(() => {
+          if (!document.body.contains(currentEpoch)) {
+            clearInterval(this._epochTimer);
+            this._epochTimer = null;
+            return;
+          }
           currentEpoch.textContent = Math.floor(Date.now() / 1000);
         }, 1000);
       }
@@ -504,9 +510,7 @@ const UtilityExtended = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.UtilityExtended = UtilityExtended;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.UtilityExtended = UtilityExtended;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = UtilityExtended;
 }

@@ -36,7 +36,7 @@ const DevTools = {
     copyBtn?.addEventListener('click', () => {
       if (!resultInput.value) return;
       navigator.clipboard.writeText(resultInput.value).then(() => {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         TextTools.showToast(isRu ? 'Пароль скопирован!' : 'Password copied to clipboard!');
       });
     });
@@ -61,20 +61,23 @@ const DevTools = {
 
     if (!chars) chars = 'abcdefghijklmnopqrstuvwxyz';
 
-    // Cryptographically secure random values
-    const array = new Uint32Array(len);
+    // Cryptographically secure random values with unbiased rejection sampling
     const cryptoObj = (typeof window !== 'undefined' && window.crypto) || (typeof crypto !== 'undefined' ? crypto : null);
-    if (cryptoObj && cryptoObj.getRandomValues) {
-      cryptoObj.getRandomValues(array);
-    } else {
+    if (!cryptoObj || !cryptoObj.getRandomValues) {
       throw new Error('Secure random unavailable');
     }
+    const maxValid = Math.floor(0xffffffff / chars.length) * chars.length;
     let password = '';
-    for (let i = 0; i < len; i++) {
-      password += chars[array[i] % chars.length];
+    const temp = new Uint32Array(1);
+    while (password.length < len) {
+      cryptoObj.getRandomValues(temp);
+      const val = temp[0];
+      if (val < maxValid) {
+        password += chars[val % chars.length];
+      }
     }
 
-    const input = doc?.getElementById('pass-result');
+    const input = document.getElementById('pass-result');
     if (input) input.value = password;
 
     if (doc) this.calcPasswordStrength(password, chars.length);
@@ -88,7 +91,7 @@ const DevTools = {
 
     const entropy = Math.round(password.length * Math.log2(poolSize || 26));
 
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
     if (entropy < 40) {
       bar.style.width = '25%';
       bar.className = 'h-1 rounded bg-red-600 transition-all';
@@ -159,7 +162,7 @@ const DevTools = {
         const val = document.getElementById(targetId)?.value;
         if (val) {
           navigator.clipboard.writeText(val).then(() => {
-            const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+            const isRu = (window.I18N?.currentLang || 'en') === 'ru';
             TextTools.showToast(isRu ? 'Хеш скопирован!' : 'Hash copied to clipboard!');
           });
         }
@@ -282,7 +285,7 @@ const DevTools = {
       try {
         output.value = btoa(unescape(encodeURIComponent(input.value)));
       } catch (e) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         alert(isRu ? 'Ошибка кодирования в Base64' : 'Error encoding to Base64');
       }
     });
@@ -291,7 +294,7 @@ const DevTools = {
       try {
         output.value = decodeURIComponent(escape(atob(input.value.trim())));
       } catch (e) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         alert(isRu ? 'Некорректная строка Base64' : 'Invalid Base64 string');
       }
     });
@@ -299,7 +302,7 @@ const DevTools = {
     document.getElementById('b64-copy-btn')?.addEventListener('click', () => {
       if (!output.value) return;
       navigator.clipboard.writeText(output.value).then(() => {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         TextTools.showToast(isRu ? 'Результат скопирован!' : 'Result copied to clipboard!');
       });
     });
@@ -313,7 +316,7 @@ const DevTools = {
 
     document.getElementById('json-format-btn')?.addEventListener('click', () => {
       if (!input.value.trim()) return;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       try {
         const parsed = JSON.parse(input.value);
         input.value = JSON.stringify(parsed, null, 2);
@@ -329,7 +332,7 @@ const DevTools = {
 
     document.getElementById('json-minify-btn')?.addEventListener('click', () => {
       if (!input.value.trim()) return;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       try {
         const parsed = JSON.parse(input.value);
         input.value = JSON.stringify(parsed);
@@ -345,7 +348,7 @@ const DevTools = {
 
     document.getElementById('json-copy-btn')?.addEventListener('click', () => {
       if (!input.value) return;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       navigator.clipboard.writeText(input.value).then(() => {
         TextTools.showToast(isRu ? 'JSON скопирован!' : 'JSON copied to clipboard!');
       });
@@ -353,9 +356,7 @@ const DevTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.DevTools = DevTools;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.DevTools = DevTools;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = DevTools;
 }

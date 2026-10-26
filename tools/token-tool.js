@@ -13,21 +13,20 @@ const TokenTool = {
     // Comprehensive 100% In-Browser Flagship AI Models (Zero external requests)
     // Cutting-Edge 2026 Flagship models (available instantly offline, zero network calls)
   baseModels: [
-    // 2026 Latest Flagship Releases (Featured First)
-    { id: 'anthropic/claude-opus-5.5', name: 'Claude Opus 5.5', provider: 'anthropic', inputPerM: 4.00, outputPerM: 20.00, context: 500000, date: '2026-09' },
-    { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', provider: 'anthropic', inputPerM: 2.00, outputPerM: 10.00, context: 500000, date: '2026-09' },
-    { id: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', provider: 'anthropic', inputPerM: 0.10, outputPerM: 0.50, context: 250000, date: '2026-10' },
-    { id: 'openai/gpt-5.6-terra', name: 'OpenAI GPT-5.6 Terra', provider: 'openai', inputPerM: 2.00, outputPerM: 12.00, context: 256000, date: '2026-07' },
-    { id: 'openai/gpt-5.5', name: 'OpenAI GPT-5.5', provider: 'openai', inputPerM: 5.00, outputPerM: 30.00, context: 256000, date: '2026-04' },
-    { id: 'openai/gpt-5.4-mini', name: 'OpenAI GPT-5.4 Mini', provider: 'openai', inputPerM: 0.75, outputPerM: 4.50, context: 128000, date: '2026-03' },
-    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', provider: 'deepseek', inputPerM: 0.15, outputPerM: 0.60, context: 1048576, date: '2026-10' },
-    { id: 'deepseek/deepseek-chat-v3.1', name: 'DeepSeek V3.1', provider: 'deepseek', inputPerM: 0.25, outputPerM: 0.95, context: 128000, date: '2026-03' },
-    { id: 'google/gemini-4-argon', name: 'Google Gemini 4 Argon', provider: 'google', inputPerM: 2.00, outputPerM: 10.00, context: 2000000, date: '2026-10' },
-    { id: 'openai/o3', name: 'OpenAI o3 (Reasoning)', provider: 'openai', inputPerM: 2.00, outputPerM: 8.00, context: 200000, date: '2025-04' },
-    { id: 'deepseek/deepseek-r1-0528', name: 'DeepSeek R1', provider: 'deepseek', inputPerM: 0.50, outputPerM: 2.15, context: 128000, date: '2025-05' },
+    // Evergreen Provider / Tier Releases (Featured First)
+    { id: 'anthropic/claude-opus-5.5', name: 'Anthropic Claude (Opus)', provider: 'anthropic', inputPerM: 4.00, outputPerM: 20.00, context: 500000, date: '2026-09' },
+    { id: 'anthropic/claude-sonnet-5.5', name: 'Anthropic Claude (Sonnet)', provider: 'anthropic', inputPerM: 2.00, outputPerM: 10.00, context: 500000, date: '2026-09' },
+    { id: 'anthropic/claude-haiku-5.5', name: 'Anthropic Claude (Haiku)', provider: 'anthropic', inputPerM: 0.10, outputPerM: 0.50, context: 250000, date: '2026-10' },
+    { id: 'openai/gpt-5.6-terra', name: 'OpenAI (Flagship)', provider: 'openai', inputPerM: 2.00, outputPerM: 12.00, context: 256000, date: '2026-07' },
+    { id: 'openai/gpt-5.4-mini', name: 'OpenAI (Mini)', provider: 'openai', inputPerM: 0.75, outputPerM: 4.50, context: 128000, date: '2026-03' },
+    { id: 'openai/o3', name: 'OpenAI (Reasoning)', provider: 'openai', inputPerM: 2.00, outputPerM: 8.00, context: 200000, date: '2025-04' },
+    { id: 'google/gemini-4-argon', name: 'Google Gemini (Pro)', provider: 'google', inputPerM: 2.00, outputPerM: 10.00, context: 2000000, date: '2026-10' },
+    { id: 'google/gemini-2.0-flash', name: 'Google Gemini (Flash)', provider: 'google', inputPerM: 0.10, outputPerM: 0.40, context: 1048576, date: '2025-02' },
+    { id: 'deepseek/deepseek-chat-v3.1', name: 'DeepSeek (Chat)', provider: 'deepseek', inputPerM: 0.25, outputPerM: 0.95, context: 128000, date: '2026-03' },
+    { id: 'deepseek/deepseek-r1-0528', name: 'DeepSeek (Reasoning)', provider: 'deepseek', inputPerM: 0.50, outputPerM: 2.15, context: 128000, date: '2025-05' },
     { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Meta Llama 3.3 70B', provider: 'meta', inputPerM: 0.10, outputPerM: 0.32, context: 131072, date: '2025-12' },
 
-        { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', inputPerM: 1.10, outputPerM: 4.40, context: 200000, date: '2025-01' },
+    { id: 'openai/o3-mini', name: 'OpenAI o3-mini (Reasoning)', provider: 'openai', inputPerM: 1.10, outputPerM: 4.40, context: 200000, date: '2025-01' },
     { id: 'openai/gpt-4.5-preview', name: 'OpenAI GPT-4.5 Preview', provider: 'openai', inputPerM: 75.00, outputPerM: 150.00, context: 128000, date: '2025-02' },
     { id: 'anthropic/claude-3.7-sonnet', name: 'Claude 3.7 Sonnet (Hybrid Reasoning)', provider: 'anthropic', inputPerM: 3.00, outputPerM: 15.00, context: 200000, date: '2025-02' },
     { id: 'google/gemini-2.5-pro', name: 'Google Gemini 2.5 Pro', provider: 'google', inputPerM: 1.25, outputPerM: 5.00, context: 2000000, date: '2025-03' },
@@ -40,7 +39,6 @@ const TokenTool = {
     { id: 'openai/o1-mini', name: 'OpenAI o1-mini', provider: 'openai', inputPerM: 3.00, outputPerM: 12.00, context: 128000, date: '2024-09' },
     { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'anthropic', inputPerM: 3.00, outputPerM: 15.00, context: 200000, date: '2024-10' },
     { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku', provider: 'anthropic', inputPerM: 0.80, outputPerM: 4.00, context: 200000, date: '2024-11' },
-    { id: 'google/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash', provider: 'google', inputPerM: 0.10, outputPerM: 0.40, context: 1048576, date: '2025-02' },
     { id: 'mistralai/mistral-large-2411', name: 'Mistral Large 2', provider: 'other', inputPerM: 2.00, outputPerM: 6.00, context: 128000, date: '2024-11' },
     { id: 'mistralai/codestral-2501', name: 'Codestral 2501', provider: 'other', inputPerM: 0.30, outputPerM: 0.90, context: 256000, date: '2025-01' }
   ],
@@ -53,9 +51,15 @@ const TokenTool = {
   reasoningTokens: 0,
 
   
+  reasoningMultipliers: {
+    none: 0,
+    low: 0.8,
+    med: 2.5,
+    high: 7.5
+  },
+
   bindReasoningEffort() {
     const buttons = document.querySelectorAll('.token-reasoning-btn');
-    const effortTokensMap = { none: 0, low: 1000, med: 4000, high: 16000 };
     buttons.forEach(btn => {
       btn.addEventListener('click', (e) => {
         buttons.forEach(b => {
@@ -68,7 +72,6 @@ const TokenTool = {
 
         const effort = target.getAttribute('data-effort') || 'none';
         this.reasoningEffort = effort;
-        this.reasoningTokens = effortTokensMap[effort] || 0;
         this.calculate();
       });
     });
@@ -80,6 +83,7 @@ const TokenTool = {
     this.bindReasoningEffort();
     this.loadCachedModels();
     this.fetchLiveModels();
+    this.calculate();
   },
 
   bindEvents() {
@@ -151,20 +155,6 @@ const TokenTool = {
         }
       });
     }
-  },
-
-  loadCachedModels() {
-    try {
-      const cached = localStorage.getItem('omnikit_ai_models_v2');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed.models) && parsed.models.length > 0) {
-          this.models = parsed.models;
-          this.updateSyncBadge(parsed.timestamp, false);
-          this.renderPricing();
-        }
-      }
-    } catch (e) {}
   },
 
   loadCachedModels() {
@@ -260,7 +250,7 @@ const TokenTool = {
       this.renderPricing();
 
       if (force) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         if (window.App && typeof App.showToast === 'function') {
           App.showToast(isRu ? `База моделей ИИ синхронизирована с OpenRouter (${this.models.length} моделей)` : `AI models synced from OpenRouter (${this.models.length} models)`);
         }
@@ -296,7 +286,7 @@ const TokenTool = {
       textarea.value = `You are an expert senior software architect. Analyze the provided codebase with zero-trust rigor. Identify architectural bottlenecks, memory leaks, concurrency race conditions, and security vulnerabilities according to OWASP Top 10 standards. Provide concrete drop-in code fixes with comprehensive unit tests.`;
     } else if (type === 'json') {
       textarea.value = JSON.stringify({
-        model: "claude-opus-5.5",
+        model: "claude-opus",
         messages: [
           { role: "system", content: "You are a helpful coding assistant." },
           { role: "user", content: "Convert this CSV to structured JSON schema with TypeScript types." }
@@ -334,10 +324,12 @@ const TokenTool = {
 
     const text = textarea.value;
     this.tokens = this.countTokens(text);
-    this.updateReasoningTokens();
     const chars = text.length;
     const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     const readingTimeSec = Math.ceil((words / 200) * 60);
+
+    const multiplier = this.reasoningMultipliers[this.reasoningEffort] || 0;
+    this.reasoningTokens = this.tokens > 0 && multiplier > 0 ? Math.round(this.tokens * multiplier) : 0;
 
     // Update Counters
     const tokenEl = document.getElementById('token-count-val');
@@ -370,7 +362,9 @@ const TokenTool = {
     if (!inRateInput || !costDisplay) return;
 
     const inRate = parseFloat(inRateInput.value) || 0;
-    const cost = (this.tokens / 1000000) * inRate;
+    const outRateInput = document.getElementById('token-custom-out');
+    const outRate = parseFloat(outRateInput?.value) || 0;
+    const cost = (this.tokens / 1000000) * inRate + (this.reasoningTokens / 1000000) * outRate;
 
     if (cost === 0) {
       costDisplay.textContent = '$0.0000';
@@ -494,9 +488,7 @@ const TokenTool = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.TokenTool = TokenTool;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.TokenTool = TokenTool;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = TokenTool;
 }

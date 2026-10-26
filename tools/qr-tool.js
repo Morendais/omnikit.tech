@@ -146,7 +146,7 @@ const QrTool = {
           await navigator.share({
             files: [file],
             title: 'QR Code',
-            text: 'Создано в OmniKit'
+            text: (window.I18N?.currentLang === 'ru' ? 'Создано в OmniKit' : 'Created with OmniKit')
           });
         } catch (e) {
           if (e.name !== 'AbortError') this.download();
@@ -166,6 +166,23 @@ const QrTool = {
 
     if (!fileInput || !dropzone) return;
 
+    // Lazy-load the self-hosted jsQR decoder once; BarcodeDetector is no
+    // longer shipped by desktop Chrome, so jsQR is the primary reliable path.
+    let jsqrPromise = null;
+    const loadJsQr = () => {
+      if (typeof jsQR !== 'undefined') return Promise.resolve(jsQR);
+      if (!jsqrPromise) {
+        jsqrPromise = new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = '/assets/js/vendor/jsqr.min.js';
+          s.onload = () => resolve(window.jsQR);
+          s.onerror = () => reject(new Error('jsQR load failed'));
+          document.head.appendChild(s);
+        });
+      }
+      return jsqrPromise;
+    };
+
     const scanImage = async (file) => {
       if (!file || !file.type.startsWith('image/')) return;
 
@@ -173,14 +190,15 @@ const QrTool = {
       const objUrl = URL.createObjectURL(file);
       img.onload = async () => {
         URL.revokeObjectURL(objUrl);
-        // Use BarcodeDetector if available
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+
+        // 1) Native BarcodeDetector where the browser still ships it
         if ('BarcodeDetector' in window) {
           try {
             const detector = new BarcodeDetector({ formats: ['qr_code'] });
             const barcodes = await detector.detect(img);
             if (barcodes.length > 0) {
-              const raw = barcodes[0].rawValue;
-              outputText.value = raw;
+              outputText.value = barcodes[0].rawValue;
               resultBox.classList.remove('hidden');
               return;
             }
@@ -189,8 +207,26 @@ const QrTool = {
           }
         }
 
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
-        alert(isRu ? 'QR-код не обнаружен или ваш браузер требует поддержки BarcodeDetector API (рекомендуется Chrome / Edge).' : 'No QR code found or your browser requires BarcodeDetector API support (Chrome / Edge recommended).');
+        // 2) jsQR fallback (self-hosted, works in every modern browser)
+        try {
+          const jsQRLib = await loadJsQr();
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(img, 0, 0);
+          const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQRLib(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
+          if (code && code.data) {
+            outputText.value = code.data;
+            resultBox.classList.remove('hidden');
+            return;
+          }
+        } catch (err) {
+          console.warn('jsQR fallback error:', err);
+        }
+
+        alert(isRu ? 'QR-код не найден на изображении. Попробуйте более крупный и контрастный код.' : 'No QR code found in the image. Try a larger, higher-contrast code.');
       };
       img.onerror = () => {
         URL.revokeObjectURL(objUrl);
@@ -218,9 +254,7 @@ const QrTool = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.QrTool = QrTool;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.QrTool = QrTool;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = QrTool;
 }

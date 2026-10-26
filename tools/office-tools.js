@@ -26,7 +26,7 @@ const OfficeTools = {
     if (!textA || !textB || !output) return;
 
     sampleBtn?.addEventListener('click', () => {
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       if (isRu) {
         textA.value = 'OmniKit — бесплатный онлайн конвертер.\nРаботает быстро и безопасно на сервере.\nВсе файлы сохраняются в базу данных.';
         textB.value = 'OmniKit — мощный набор онлайн утилит в браузере.\nРаботает молниеносно и безопасно на вашем устройстве.\nФайлы не загружаются на сервер и не сохраняются.';
@@ -70,7 +70,7 @@ const OfficeTools = {
       }
       html += '</div>';
 
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       output.innerHTML = `
         <div class="mb-3 flex items-center justify-between text-xs pb-2 border-b border-neutral-200 dark:border-neutral-800">
           <span class="font-semibold text-neutral-700 dark:text-neutral-300">
@@ -100,7 +100,7 @@ const OfficeTools = {
 
     const convert = () => {
       const val = parseFloat(input.value.replace(/\s+/g, '').replace(',', '.'));
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
       if (isNaN(val) || val < 0) {
         resultBox.textContent = isRu ? 'Введите корректное число' : 'Please enter a valid positive number';
@@ -157,7 +157,7 @@ const OfficeTools = {
       if (resultBox.textContent) {
         navigator.clipboard.writeText(resultBox.textContent).then(() => {
           if (window.TextTools) {
-            const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+            const isRu = (window.I18N?.currentLang || 'en') === 'ru';
             TextTools.showToast(isRu ? 'Сумма скопирована!' : 'Amount copied to clipboard!');
           }
         });
@@ -183,7 +183,7 @@ const OfficeTools = {
     if (!patternInput || !textInput) return;
 
     if (!textInput.dataset.userEdited) {
-      const isRuInit = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRuInit = (window.I18N?.currentLang || 'en') === 'ru';
       textInput.value = isRuInit
         ? 'Контактная информация:\nEmail: support@omnikit.tech или admin@example.com\nСайт: https://omnikit.tech\nIP адрес сервера: 198.51.100.42\nТелефон: +7 (999) 123-45-67'
         : 'Contact Information:\nEmail: support@omnikit.tech or admin@example.com\nWebsite: https://omnikit.tech\nServer IP: 198.51.100.42\nPhone: +1 (800) 555-0199';
@@ -195,7 +195,7 @@ const OfficeTools = {
 
     window.addEventListener('languageChanged', (e) => {
       if (!textInput.dataset.userEdited) {
-        const lang = e?.detail?.lang || window.I18N?.currentLang || 'ru';
+        const lang = e?.detail?.lang || window.I18N?.currentLang || 'en';
         textInput.value = lang === 'ru'
           ? 'Контактная информация:\nEmail: support@omnikit.tech или admin@example.com\nСайт: https://omnikit.tech\nIP адрес сервера: 198.51.100.42\nТелефон: +7 (999) 123-45-67'
           : 'Contact Information:\nEmail: support@omnikit.tech or admin@example.com\nWebsite: https://omnikit.tech\nServer IP: 198.51.100.42\nPhone: +1 (800) 555-0199';
@@ -206,7 +206,7 @@ const OfficeTools = {
     const testRegex = () => {
       const pattern = patternInput.value;
       const text = textInput.value;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
       if (!pattern) {
         if (highlightBox) highlightBox.innerHTML = this.escapeHtml(text);
@@ -286,12 +286,12 @@ const OfficeTools = {
         }
 
         const preset = btn.dataset.preset;
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         const presets = {
           email: { p: '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}', t: 'Support email: support@omnikit.tech or sales@example.org' },
           phone: {
-            p: isRu ? '(?:\\+7|8)[\\s-]?\\(?\\d{3}\\)?[\\s-]?\\d{3}[\\s-]?\\d{2}[\\s-]?\\d{2}' : '\\+?[1-9]\\d{1,14}',
-            t: isRu ? 'Контакты: +7 (999) 123-45-67 или 8-800-555-35-35' : 'Customer Support: +1 (800) 555-0199 or +44 20 7946 0991'
+            p: '(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b|(?:\+7|8)[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{2}[-.\s]?\d{2}\b',
+            t: isRu ? 'Контакты: +7 (999) 123-45-67 или 8-800-555-35-35, Server IP: 198.51.100.42' : 'Customer Support: +1 (800) 555-0199, Server IP: 198.51.100.42'
           },
           ip: { p: '\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b', t: 'Server IPs: 127.0.0.1 and 198.51.100.42 active' },
           url: { p: 'https?:\\/\\/[\\w.-]+(?:\\.[\\w\\.-]+)+[\\w\\-\\._~:/?#[\\]@!\\$&\'\\(\\)\\*\\+,;=.]+', t: 'Check https://omnikit.tech/heic-to-jpg today' }
@@ -355,7 +355,7 @@ const OfficeTools = {
       if (resultInput.value) {
         navigator.clipboard.writeText(resultInput.value).then(() => {
           if (window.TextTools) {
-            const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+            const isRu = (window.I18N?.currentLang || 'en') === 'ru';
             TextTools.showToast(isRu ? 'UTM ссылка скопирована!' : 'UTM Link copied to clipboard!');
           }
         });
@@ -460,9 +460,7 @@ const OfficeTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.OfficeTools = OfficeTools;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.OfficeTools = OfficeTools;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = OfficeTools;
 }

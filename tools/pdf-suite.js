@@ -80,7 +80,7 @@ const PdfSuite = {
       }
       settingsPanel?.classList.remove('hidden');
       generateBtn?.classList.remove('hidden');
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       listEl.innerHTML = `
         <div class="space-y-2 mt-4">
           <p class="text-xs text-neutral-500 font-medium">${isRu ? 'Выбрано изображений:' : 'Selected images:'} ${files.length}</p>
@@ -169,7 +169,7 @@ const PdfSuite = {
         alert('Ошибка сборки PDF: ' + err.message);
       } finally {
         generateBtn.disabled = false;
-        generateBtn.textContent = (window.I18N?.currentLang || 'ru') === 'ru' ? 'Собрать PDF документ' : 'Merge & Download PDF';
+        generateBtn.textContent = (window.I18N?.currentLang || 'en') === 'ru' ? 'Собрать PDF документ' : 'Merge & Download PDF';
       }
     });
   },
@@ -212,7 +212,7 @@ const PdfSuite = {
 
     cancelBtn?.addEventListener('click', () => {
       this._pdfToImageCancelled = true;
-      const isRu = (typeof window !== 'undefined' && window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (typeof window !== 'undefined' && window.I18N?.currentLang || 'en') === 'ru';
       if (progressText) progressText.textContent = isRu ? 'Обработка отменена' : 'Processing cancelled';
       if (progressBox) {
         setTimeout(() => progressBox.classList.add('hidden'), 600);
@@ -227,9 +227,13 @@ const PdfSuite = {
       }
 
       this._pdfToImageCancelled = false;
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
 
       const reader = new FileReader();
+      reader.onerror = () => {
+        alert(isRu ? 'Ошибка чтения PDF файла' : 'PDF file read error');
+        resetState();
+      };
       reader.onload = async (e) => {
         try {
           const typedarray = new Uint8Array(e.target.result);
@@ -375,7 +379,7 @@ const PdfSuite = {
         a.download = 'omnikit-pdf-pages.zip';
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         if (window.App && window.App.showToast) {
           window.App.showToast(isRu ? 'ZIP-архив страниц сформирован!' : 'ZIP archive generated!');
         }
@@ -383,7 +387,7 @@ const PdfSuite = {
         alert('Ошибка создания ZIP: ' + err.message);
       } finally {
         downloadZipBtn.disabled = false;
-        downloadZipBtn.textContent = (window.I18N?.currentLang || 'ru') === 'ru' ? 'Скачать все страницы (ZIP)' : 'Download All as ZIP';
+        downloadZipBtn.textContent = (window.I18N?.currentLang || 'en') === 'ru' ? 'Скачать все страницы (ZIP)' : 'Download All as ZIP';
       }
     });
   },
@@ -406,7 +410,7 @@ const PdfSuite = {
         return;
       }
       mergeBtn?.classList.remove('hidden');
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       listEl.innerHTML = `
         <div class="space-y-2 mt-4">
           <p class="text-xs text-neutral-500 font-medium">${isRu ? 'Файлов для объединения:' : 'PDF files to merge:'} ${this.mergeFiles.length}</p>
@@ -450,7 +454,7 @@ const PdfSuite = {
 
     mergeBtn?.addEventListener('click', async () => {
       if (this.mergeFiles.length < 2) {
-        alert((window.I18N?.currentLang || 'ru') === 'ru' ? 'Выберите минимум 2 PDF файла для склейки.' : 'Please add at least 2 PDF files to merge.');
+        alert((window.I18N?.currentLang || 'en') === 'ru' ? 'Выберите минимум 2 PDF файла для склейки.' : 'Please add at least 2 PDF files to merge.');
         return;
       }
       if (!window.PDFLib) {
@@ -481,7 +485,7 @@ const PdfSuite = {
         // Safe timeout for Safari and Firefox download completion
         setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         if (window.App && window.App.showToast) {
           window.App.showToast(isRu ? 'PDF успешно склеен и скачивается!' : 'PDF merged and downloaded successfully!');
         } else if (window.TextTools && window.TextTools.showToast) {
@@ -491,7 +495,7 @@ const PdfSuite = {
         alert('Ошибка объединения PDF: ' + err.message);
       } finally {
         mergeBtn.disabled = false;
-        mergeBtn.textContent = (window.I18N?.currentLang || 'ru') === 'ru' ? 'Склеить PDF файлы' : 'Merge PDF Files';
+        mergeBtn.textContent = (window.I18N?.currentLang || 'en') === 'ru' ? 'Склеить PDF файлы' : 'Merge PDF Files';
       }
     });
   },
@@ -515,7 +519,7 @@ const PdfSuite = {
       const totalPagesEl = document.getElementById('split-total-pages');
       if (window.PDFLib && totalPagesEl) {
         try {
-          const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+          const isRu = (window.I18N?.currentLang || 'en') === 'ru';
           const buffer = await file.arrayBuffer();
           const pdfDoc = await PDFLib.PDFDocument.load(buffer, { ignoreEncryption: true });
           const count = pdfDoc.getPageCount();
@@ -543,7 +547,7 @@ const PdfSuite = {
       if (!splitFile || !window.PDFLib) return;
       const rangeStr = pageRangeInput?.value.trim();
       if (!rangeStr) {
-        alert((window.I18N?.currentLang || 'ru') === 'ru' ? 'Укажите диапазон страниц, например: 1-3 или 1, 4' : 'Please specify page range (e.g. 1-3 or 1, 4)');
+        alert((window.I18N?.currentLang || 'en') === 'ru' ? 'Укажите диапазон страниц, например: 1-3 или 1, 4' : 'Please specify page range (e.g. 1-3 or 1, 4)');
         return;
       }
 
@@ -591,7 +595,7 @@ const PdfSuite = {
         a.download = `split-${splitFile.name}`;
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60000);
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         if (window.App && window.App.showToast) {
           window.App.showToast(isRu ? 'Разделённый PDF скачивается!' : 'Split PDF downloading!');
         }
@@ -599,15 +603,13 @@ const PdfSuite = {
         alert('Ошибка разделения PDF: ' + err.message);
       } finally {
         splitBtn.disabled = false;
-        splitBtn.textContent = (window.I18N?.currentLang || 'ru') === 'ru' ? 'Разделить и скачать' : 'Extract & Download';
+        splitBtn.textContent = (window.I18N?.currentLang || 'en') === 'ru' ? 'Разделить и скачать' : 'Extract & Download';
       }
     });
   }
 };
 
-if (typeof window !== "undefined") {
-  window.PdfSuite = PdfSuite;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.PdfSuite = PdfSuite;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = PdfSuite;
 }

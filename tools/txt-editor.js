@@ -110,7 +110,7 @@ const TxtEditor = {
       }
 
       if (window.TextTools && typeof window.TextTools.showToast === 'function') {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         TextTools.showToast(isRu ? `Файл "${file.name}" открыт в блокноте` : `File "${file.name}" loaded into notepad`);
       }
     };
@@ -146,7 +146,7 @@ const TxtEditor = {
 
     const statsEl = document.getElementById('notepad-stats');
     if (statsEl) {
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       statsEl.textContent = isRu 
         ? `${lines} строк • ${words} слов • ${chars} символов`
         : `${lines} lines • ${words} words • ${chars} characters`;
@@ -157,7 +157,7 @@ const TxtEditor = {
     const textarea = document.getElementById('notepad-textarea');
     if (!textarea) return;
 
-    const isRu = () => (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = () => (window.I18N?.currentLang || 'en') === 'ru';
 
     // 1. Remove duplicate lines
     document.getElementById('btn-note-dedupe')?.addEventListener('click', () => {
@@ -213,7 +213,7 @@ const TxtEditor = {
       const formatSelect = document.getElementById('notepad-format');
 
       if (!textarea || !textarea.value) {
-        const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+        const isRu = (window.I18N?.currentLang || 'en') === 'ru';
         alert(isRu ? 'Блокнот пуст. Введите текст для сохранения.' : 'Notepad is empty. Enter text to save.');
         return;
       }
@@ -234,9 +234,7 @@ const TxtEditor = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.TxtEditor = TxtEditor;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.TxtEditor = TxtEditor;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = TxtEditor;
 }

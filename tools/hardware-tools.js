@@ -60,9 +60,12 @@ const HardwareTools = {
   mouse: {
     pressedButtons: new Set(),
     lastDownTime: { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 },
-    clickThreshold: 80,
+    // Fast double-click window: 200 ms typical (gaming/testing standard) + 5 ms tolerance
+    doubleClickWindow: 205,
+    clickThreshold: 50,
     normalClicksCount: 0,
     doubleClicksCount: 0,
+    chatterCount: 0,
     wheelTotalScrolls: 0,
     wheelAnomaliesCount: 0,
     lastWheelDirection: 0,
@@ -74,6 +77,11 @@ const HardwareTools = {
     cpsTimer: null,
     cpsTimeLeft: 5,
     cpsBest: 0,
+    trackCtx: null,
+    trackLast: null,
+    trackDistance: 0,
+    trackSpeed: 0,
+    trackRAF: 0,
     globalListenersBound: false
   },
 
@@ -82,6 +90,7 @@ const HardwareTools = {
     this.bindWebcamEvents();
     this.bindKeyboardEvents();
     this.bindMouseEvents();
+    this.bindMouseTracking();
   },
 
   t(key, fallbackRu, fallbackEn) {
@@ -89,7 +98,7 @@ const HardwareTools = {
       const val = window.I18N.t(key);
       if (val && val !== key) return val;
     }
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
     return isRu ? fallbackRu : fallbackEn;
   },
 
@@ -760,7 +769,7 @@ const HardwareTools = {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       if (window.TextTools && typeof window.TextTools.showToast === 'function') {
         TextTools.showToast(isRu ? 'Снимок сохранен на компьютер!' : 'Snapshot saved to your device!');
       }
@@ -964,36 +973,26 @@ const HardwareTools = {
       if (thresholdVal) thresholdVal.textContent = `${this.mouse.clickThreshold} ms`;
     });
 
-    // 1. Mouse Button Down Handler (Supports Chorded & Simultaneous Presses + Synthetic & Pointer Events)
-    let lastHandledDownTime = 0;
-    let lastHandledDownBtn = -1;
+    // 1. Mouse Button Down Handler.
+    // Bind ONLY ONE event family: pointer events on modern browsers, mouse events
+    // as a fallback. Binding both made a single physical click arrive twice
+    // (pointerdown + compat mousedown), which produced phantom "double-clicks".
+    const hasPointerEvents = typeof window.PointerEvent === 'function';
     const onMouseDown = (e) => {
       e.preventDefault();
-      const now = performance.now();
-      if (e.button === lastHandledDownBtn && (now - lastHandledDownTime) < 10) {
-        return;
-      }
-      lastHandledDownBtn = e.button;
-      lastHandledDownTime = now;
       this.handleMouseDown(e);
     };
-
-    let lastHandledUpTime = 0;
-    let lastHandledUpBtn = -1;
     const onMouseUp = (e) => {
-      const now = performance.now();
-      if (e.button === lastHandledUpBtn && (now - lastHandledUpTime) < 10) {
-        return;
-      }
-      lastHandledUpBtn = e.button;
-      lastHandledUpTime = now;
       this.handleMouseUp(e);
     };
 
-    clickZone?.addEventListener('pointerdown', onMouseDown);
-    clickZone?.addEventListener('mousedown', onMouseDown);
-    clickZone?.addEventListener('pointerup', onMouseUp);
-    clickZone?.addEventListener('mouseup', onMouseUp);
+    if (hasPointerEvents) {
+      clickZone?.addEventListener('pointerdown', onMouseDown);
+      clickZone?.addEventListener('pointerup', onMouseUp);
+    } else {
+      clickZone?.addEventListener('mousedown', onMouseDown);
+      clickZone?.addEventListener('mouseup', onMouseUp);
+    }
     clickZone?.addEventListener('contextmenu', (e) => {
       e.preventDefault(); // Prevent native right-click menu, but DO NOT release button 2 here!
     });
@@ -1083,6 +1082,82 @@ const HardwareTools = {
     }
   },
 
+  // ==========================================
+  // POINTER TRACKING & JITTER CANVAS (mouse test v2)
+  // Draws the pointer trail inside the card canvas; sensor faults (jitter,
+  // dropouts, angle snapping zigzag) become visible as a broken trail.
+  // ==========================================
+  bindMouseTracking() {
+    const canvas = document.getElementById('mouse-track-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    this.mouse.trackCtx = ctx;
+
+    const xyEl = document.getElementById('mouse-track-xy');
+    const speedEl = document.getElementById('mouse-track-speed');
+    const distEl = document.getElementById('mouse-track-dist');
+
+    // Gentle fade loop keeps only the freshest ~1-2s of movement on screen
+    const fadeLoop = () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      ctx.fillStyle = isDark ? 'rgba(20,22,26,0.05)' : 'rgba(255,255,255,0.05)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      this.mouse.trackRAF = requestAnimationFrame(fadeLoop);
+    };
+    canvas.addEventListener('pointerenter', () => {
+      cancelAnimationFrame(this.mouse.trackRAF);
+      this.mouse.trackRAF = requestAnimationFrame(fadeLoop);
+    });
+    canvas.addEventListener('pointerleave', () => {
+      cancelAnimationFrame(this.mouse.trackRAF);
+      this.mouse.trackLast = null;
+      this.mouse.trackSpeed = 0;
+      if (speedEl) speedEl.textContent = '0 px/s';
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      const x = Math.round(((e.clientX - r.left) / r.width) * canvas.width);
+      const y = Math.round(((e.clientY - r.top) / r.height) * canvas.height);
+      const now = performance.now();
+
+      if (this.mouse.trackLast) {
+        const dist = Math.hypot(x - this.mouse.trackLast.x, y - this.mouse.trackLast.y);
+        const dt = Math.max(now - this.mouse.trackLast.t, 1);
+        if (dist > 0.5) {
+          this.mouse.trackDistance += dist;
+          this.mouse.trackSpeed = (dist / dt) * 1000;
+          ctx.strokeStyle = '#6366f1';
+          ctx.lineWidth = 2;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(this.mouse.trackLast.x, this.mouse.trackLast.y);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }
+      }
+      this.mouse.trackLast = { x, y, t: now };
+
+      if (xyEl) xyEl.textContent = `${x} / ${y}`;
+      if (distEl) distEl.textContent = `${Math.round(this.mouse.trackDistance)} px`;
+      if (speedEl && now - (this._lastSpeedPaint || 0) > 120) {
+        speedEl.textContent = `${Math.round(this.mouse.trackSpeed)} px/s`;
+        this._lastSpeedPaint = now;
+      }
+    });
+
+    document.getElementById('mouse-track-clear')?.addEventListener('click', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      this.mouse.trackDistance = 0;
+      this.mouse.trackLast = null;
+      this.mouse.trackSpeed = 0;
+      if (distEl) distEl.textContent = '0 px';
+      if (speedEl) speedEl.textContent = '0 px/s';
+      if (xyEl) xyEl.textContent = '— / —';
+    });
+  },
+
   handleMouseDown(e) {
     e.preventDefault();
     const btn = e.button; // 0=Left, 1=Middle, 2=Right, 3=Back, 4=Forward
@@ -1102,20 +1177,29 @@ const HardwareTools = {
       this.releaseMouseButton(btn);
     }, 500);
 
-    const isDoubleClick = lastTime > 0 && delta <= this.mouse.clickThreshold && delta > 0;
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    // Double click = two presses within the OS-style window (500 ms + 5 ms).
+    // Chatter = suspiciously fast repeat press (microswitch bounce), a subset
+    // of double clicks counted separately as a hardware fault.
+    const isDoubleClick = lastTime > 0 && delta > 0 && delta <= this.mouse.doubleClickWindow;
+    const isChatter = isDoubleClick && delta <= this.mouse.clickThreshold;
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
     const btnNames = isRu
       ? ['LMB (Левая)', 'MMB (Колесико)', 'RMB (Правая)', 'Mouse 4 (Назад)', 'Mouse 5 (Вперед)']
       : ['LMB (Left)', 'MMB (Wheel)', 'RMB (Right)', 'Mouse 4 (Back)', 'Mouse 5 (Forward)'];
     const btnName = btnNames[btn] || `Button ${btn}`;
 
-    if (isDoubleClick) {
+    if (isChatter) {
       this.mouse.doubleClicksCount++;
-      this.showDoubleClickAlert(delta, btnName);
-      this.addClickHistoryItem(delta, btnName, true);
+      this.mouse.chatterCount++;
+      this.showDoubleClickAlert(delta, btnName, 'chatter');
+      this.addClickHistoryItem(delta, btnName, 'chatter');
+    } else if (isDoubleClick) {
+      this.mouse.doubleClicksCount++;
+      this.showDoubleClickAlert(delta, btnName, 'double');
+      this.addClickHistoryItem(delta, btnName, 'double');
     } else {
       this.mouse.normalClicksCount++;
-      this.addClickHistoryItem(delta, btnName, false);
+      this.addClickHistoryItem(delta, btnName, 'normal');
     }
 
     this.updateMouseCounts();
@@ -1185,26 +1269,37 @@ const HardwareTools = {
     }
   },
 
-  showDoubleClickAlert(delta, btnName) {
+  showDoubleClickAlert(delta, btnName, kind) {
     const alertBox = document.getElementById('mouse-doubleclick-alert');
     if (!alertBox) return;
 
+    const isChatter = kind === 'chatter';
     alertBox.textContent = '';
+    alertBox.className = isChatter
+      ? 'p-4 rounded-xl border border-rose-300 bg-rose-50 dark:bg-rose-950/50 dark:border-rose-800'
+      : 'p-4 rounded-xl border border-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 dark:border-indigo-800';
+
     const wrapper = document.createElement('div');
     wrapper.className = 'flex items-center gap-3';
 
     const icon = document.createElement('i');
-    icon.setAttribute('data-lucide', 'alert-triangle');
-    icon.className = 'w-6 h-6 text-rose-500 shrink-0';
+    icon.setAttribute('data-lucide', isChatter ? 'alert-triangle' : 'mouse-pointer-click');
+    icon.className = isChatter ? 'w-6 h-6 text-rose-500 shrink-0' : 'w-6 h-6 text-indigo-500 shrink-0';
 
     const textDiv = document.createElement('div');
     const titleP = document.createElement('p');
-    titleP.className = 'font-bold text-rose-600 dark:text-rose-400 text-sm';
-    titleP.textContent = this.t('mouse_alert_title', 'Обнаружен аппаратный дабл-клик!', 'Hardware Double-Click Detected!');
+    titleP.className = isChatter
+      ? 'font-bold text-rose-600 dark:text-rose-400 text-sm'
+      : 'font-bold text-indigo-600 dark:text-indigo-400 text-sm';
+    titleP.textContent = isChatter
+      ? this.t('mouse_alert_title', 'Обнаружен дребезг микропереключателя!', 'Microswitch chatter detected!')
+      : this.t('mouse_alert_double_title', 'Двойной клик зарегистрирован', 'Double-click registered');
 
     const descP = document.createElement('p');
     descP.className = 'text-xs text-neutral-600 dark:text-neutral-400 mt-0.5';
-    descP.textContent = `${btnName} — ${this.t('mouse_alert_interval', 'интервал между кликами', 'click interval')}: ${delta} ms (${this.t('mouse_alert_reason', 'порог дребезга', 'chatter threshold')} ${this.mouse.clickThreshold} ms).`;
+    descP.textContent = isChatter
+      ? `${btnName} — ${this.t('mouse_alert_interval', 'интервал между нажатиями', 'press interval')}: ${delta} ms (${this.t('mouse_alert_reason', 'порог дребезга', 'chatter threshold')} ${this.mouse.clickThreshold} ms).`
+      : `${btnName} — ${this.t('mouse_alert_interval', 'интервал между нажатиями', 'press interval')}: ${delta} ms (≤ ${this.mouse.doubleClickWindow} ms).`;
 
     textDiv.appendChild(titleP);
     textDiv.appendChild(descP);
@@ -1217,18 +1312,20 @@ const HardwareTools = {
 
     alertBox.classList.remove('animate-pulse');
     void alertBox.offsetWidth;
-    alertBox.classList.add('animate-pulse');
+    if (isChatter) alertBox.classList.add('animate-pulse');
   },
 
-  addClickHistoryItem(delta, btnName, isFaulty) {
+  addClickHistoryItem(delta, btnName, kind) {
     const historyList = document.getElementById('mouse-history-list');
     if (!historyList) return;
 
     const item = document.createElement('div');
     item.className = `px-2.5 py-1.5 rounded-lg border text-xs font-mono flex items-center justify-between ${
-      isFaulty 
-        ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-400 font-bold' 
-        : 'bg-white border-neutral-200 text-neutral-700 dark:bg-[#14161a] dark:border-neutral-800 dark:text-neutral-300'
+      kind === 'chatter'
+        ? 'bg-rose-50 border-rose-300 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-400 font-bold'
+        : kind === 'double'
+          ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
+          : 'bg-white border-neutral-200 text-neutral-700 dark:bg-[#14161a] dark:border-neutral-800 dark:text-neutral-300'
     }`;
 
     const nameSpan = document.createElement('span');
@@ -1237,10 +1334,12 @@ const HardwareTools = {
     const rightSpan = document.createElement('span');
     rightSpan.className = 'flex items-center gap-1.5';
 
-    if (isFaulty) {
+    if (kind === 'chatter' || kind === 'double') {
       const tag = document.createElement('span');
-      tag.className = 'text-[10px] px-1 rounded bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 uppercase';
-      tag.textContent = 'Double-Click';
+      tag.className = kind === 'chatter'
+        ? 'text-[10px] px-1 rounded bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 uppercase'
+        : 'text-[10px] px-1 rounded bg-indigo-200 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 uppercase';
+      tag.textContent = kind === 'chatter' ? 'Chatter' : 'Double-Click';
       rightSpan.appendChild(tag);
     }
 
@@ -1261,8 +1360,10 @@ const HardwareTools = {
   updateMouseCounts() {
     const normalEl = document.getElementById('mouse-normal-count');
     const doubleEl = document.getElementById('mouse-double-count');
+    const chatterEl = document.getElementById('mouse-chatter-count');
     if (normalEl) normalEl.textContent = this.mouse.normalClicksCount;
     if (doubleEl) doubleEl.textContent = this.mouse.doubleClicksCount;
+    if (chatterEl) chatterEl.textContent = this.mouse.chatterCount;
   },
 
   handleMouseWheel(e) {
@@ -1307,7 +1408,7 @@ const HardwareTools = {
     const dirEl = document.getElementById('mouse-wheel-dir');
     const totalEl = document.getElementById('mouse-wheel-total');
 
-    const isRu = (window.I18N?.currentLang || 'ru') === 'ru';
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
     if (dirEl) dirEl.textContent = isUp ? (isRu ? '↑ Вверх' : '↑ Up') : (isRu ? '↓ Вниз' : '↓ Down');
     if (totalEl) totalEl.textContent = this.mouse.wheelTotalScrolls;
 
@@ -1481,6 +1582,7 @@ const HardwareTools = {
     this.clearAllPressedButtons();
     this.mouse.normalClicksCount = 0;
     this.mouse.doubleClicksCount = 0;
+    this.mouse.chatterCount = 0;
     this.mouse.wheelTotalScrolls = 0;
     this.mouse.wheelAnomaliesCount = 0;
     this.mouse.wheelHistory = [];
@@ -1500,6 +1602,19 @@ const HardwareTools = {
     if (wheelAnomalies) { wheelAnomalies.textContent = '0'; wheelAnomalies.className = 'font-black text-2xl text-neutral-700 dark:text-neutral-300'; }
     const wheelDir = document.getElementById('mouse-wheel-dir');
     if (wheelDir) wheelDir.textContent = '—';
+
+    // Pointer tracking reset
+    this.mouse.trackDistance = 0;
+    this.mouse.trackLast = null;
+    this.mouse.trackSpeed = 0;
+    const trackCanvas = document.getElementById('mouse-track-canvas');
+    if (trackCanvas) trackCanvas.getContext('2d').clearRect(0, 0, trackCanvas.width, trackCanvas.height);
+    const trackDist = document.getElementById('mouse-track-dist');
+    if (trackDist) trackDist.textContent = '0 px';
+    const trackSpeed = document.getElementById('mouse-track-speed');
+    if (trackSpeed) trackSpeed.textContent = '0 px/s';
+    const trackXy = document.getElementById('mouse-track-xy');
+    if (trackXy) trackXy.textContent = '— / —';
   },
 
   // ==========================================
@@ -1513,9 +1628,5 @@ const HardwareTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.HardwareTools = HardwareTools;
-}
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = HardwareTools;
-}
+if (typeof window !== "undefined") window.HardwareTools = HardwareTools;
+if (typeof module !== "undefined") module.exports = HardwareTools;

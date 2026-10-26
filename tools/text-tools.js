@@ -264,9 +264,5 @@ const TextTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.TextTools = TextTools;
-}
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = TextTools;
-}
+if (typeof window !== 'undefined') window.TextTools = TextTools;
+if (typeof module !== 'undefined' && module.exports) module.exports = TextTools;

@@ -211,7 +211,8 @@ const AudioTools = {
       this.drawWaveform(this.sourceBuffer);
     } catch (err) {
       console.error('Audio decode failed:', err);
-      alert('Не удалось декодировать аудиофайл. Убедитесь, что формат поддерживается (MP3, WAV, OGG, M4A).');
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+      alert(isRu ? 'Не удалось декодировать аудиофайл. Убедитесь, что формат поддерживается (MP3, WAV, OGG, M4A).' : 'Failed to decode audio file. Make sure the format is supported (MP3, WAV, OGG, M4A).');
     }
   },
 
@@ -428,12 +429,16 @@ const AudioTools = {
     const originalText = exportBtn.innerHTML;
 
     try {
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
       exportBtn.disabled = true;
-      exportBtn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Экспорт...</span>`;
+      exportBtn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>${isRu ? 'Экспорт...' : 'Exporting...'}</span>`;
       if (window.lucide) lucide.createIcons();
 
       const rate = this.getEffectiveRate();
       const outputDuration = this.duration / rate;
+      if (outputDuration > 900) {
+        throw new Error(isRu ? 'Длительность аудио превышает 15 минут (защита от нехватки памяти браузера).' : 'Audio duration exceeds 15 minutes (browser memory protection limit).');
+      }
       const sampleRate = 44100;
       const length = Math.ceil(outputDuration * sampleRate);
 
@@ -474,10 +479,11 @@ const AudioTools = {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       console.error('Audio export failed:', err);
-      alert('Ошибка при экспорте аудио: ' + err.message);
+      const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+      alert((isRu ? 'Ошибка при экспорте аудио: ' : 'Audio export error: ') + err.message);
     } finally {
       exportBtn.disabled = false;
       exportBtn.innerHTML = originalText;
@@ -544,9 +550,7 @@ const AudioTools = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.AudioTools = AudioTools;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.AudioTools = AudioTools;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = AudioTools;
 }

@@ -217,7 +217,8 @@ const FaviconStudio = {
     const btn = document.getElementById('favicon-download-zip-btn');
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Сборка архива...</span>`;
+    const isRu = (window.I18N?.currentLang || 'en') === 'ru';
+    btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>${isRu ? 'Сборка архива...' : 'Building ZIP...'}</span>`;
     if (window.lucide) lucide.createIcons();
 
     try {
@@ -265,9 +266,7 @@ const FaviconStudio = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.FaviconStudio = FaviconStudio;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.FaviconStudio = FaviconStudio;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = FaviconStudio;
 }

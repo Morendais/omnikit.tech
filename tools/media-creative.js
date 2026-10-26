@@ -26,7 +26,7 @@ const MediaCreative = {
   },
 
   t(ru, en) {
-    const lang = (window.I18N && window.I18N.currentLang) || (window.I18n && window.I18n.currentLang) || 'ru';
+    const lang = (window.I18N && window.I18N.currentLang) || (window.I18n && window.I18n.currentLang) || 'en';
     return lang === 'en' ? en : ru;
   },
 
@@ -877,44 +877,120 @@ const MediaCreative = {
     const fileInput = document.getElementById('svg-input');
     const dropzone = document.getElementById('svg-dropzone');
     const controls = document.getElementById('svg-controls');
-    const previewContainer = document.getElementById('svg-preview-container');
-    const scaleSelect = document.getElementById('svg-scale');
-    const downloadPngBtn = document.getElementById('svg-download-png');
-    const downloadSvgBtn = document.getElementById('svg-download-svg');
-    const resetBtn = document.getElementById('svg-reset');
-    const rawSize = document.getElementById('svg-raw-size');
+    const previewContainer = document.getElementById('svg-preview') || document.getElementById('svg-preview-container');
+    const rawSize = document.getElementById('svg-orig-size') || document.getElementById('svg-raw-size');
     const optSize = document.getElementById('svg-opt-size');
+    const optBtn = document.getElementById('svg-btn-opt') || document.getElementById('svg-download-svg');
+    const btn1x = document.getElementById('svg-btn-1x');
+    const btn2x = document.getElementById('svg-btn-2x');
+    const btn4x = document.getElementById('svg-btn-4x');
+    const btnIco = document.getElementById('svg-btn-ico');
+    const resetBtn = document.getElementById('svg-btn-reset') || document.getElementById('svg-reset');
 
     if (!fileInput || !dropzone) return;
+
+    const renderPng = (scale) => {
+      if (!this.svgContent) return;
+      const optimized = this.optimizeSvg(this.svgContent);
+      const blob = new Blob([optimized], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = (img.naturalWidth || 800) * scale;
+        canvas.height = (img.naturalHeight || 800) * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob((pngBlob) => {
+          if (!pngBlob) return;
+          const pngUrl = URL.createObjectURL(pngBlob);
+          const a = document.createElement('a');
+          a.href = pngUrl;
+          a.download = `rendered-${scale}x.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(pngUrl);
+          URL.revokeObjectURL(url);
+        }, 'image/png');
+      };
+      img.src = url;
+    };
+
+    const renderIco = async () => {
+      if (!this.svgContent) return;
+      const optimized = this.optimizeSvg(this.svgContent);
+      const blob = new Blob([optimized], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+
+      img.onload = async () => {
+        const sizes = [16, 32, 48, 64, 128, 256];
+        const canvases = [];
+        for (const s of sizes) {
+          const c = document.createElement('canvas');
+          c.width = s;
+          c.height = s;
+          const ctx = c.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, s, s);
+          canvases.push({ size: s, canvas: c });
+        }
+
+        let icoBlob = null;
+        if (window.FaviconStudio && typeof window.FaviconStudio.buildMultiResIco === 'function') {
+          icoBlob = await window.FaviconStudio.buildMultiResIco(canvases);
+        }
+        if (icoBlob) {
+          const icoUrl = URL.createObjectURL(icoBlob);
+          const a = document.createElement('a');
+          a.href = icoUrl;
+          a.download = 'favicon.ico';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(icoUrl);
+        }
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    };
 
     const handleSvgFile = (file) => {
       if (!file || (!file.name.endsWith('.svg') && file.type !== 'image/svg+xml')) return;
       const reader = new FileReader();
       reader.onload = (e) => {
         this.svgContent = e.target.result;
-        rawSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+        if (rawSize) rawSize.textContent = `${(file.size / 1024).toFixed(1)} KB`;
 
         const optimized = this.optimizeSvg(this.svgContent);
-        optSize.textContent = `${(new Blob([optimized]).size / 1024).toFixed(1)} KB`;
+        if (optSize) optSize.textContent = `${(new Blob([optimized]).size / 1024).toFixed(1)} KB`;
 
         controls?.classList.remove('hidden');
         dropzone?.classList.add('hidden');
         
         // Safe DOM insertion preventing XSS
-        previewContainer.innerHTML = '';
-        try {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(optimized, 'image/svg+xml');
-          const cleanSvg = doc.querySelector('svg');
-          if (cleanSvg) {
-            cleanSvg.style.maxWidth = '100%';
-            cleanSvg.style.maxHeight = '100%';
-            previewContainer.appendChild(cleanSvg);
-          } else {
-            previewContainer.textContent = 'Invalid SVG';
+        if (previewContainer) {
+          previewContainer.innerHTML = '';
+          try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(optimized, 'image/svg+xml');
+            const cleanSvg = doc.querySelector('svg');
+            if (cleanSvg) {
+              cleanSvg.style.maxWidth = '100%';
+              cleanSvg.style.maxHeight = '140px';
+              previewContainer.appendChild(cleanSvg);
+            } else {
+              previewContainer.textContent = 'Invalid SVG';
+            }
+          } catch (e) {
+            previewContainer.textContent = 'Error displaying SVG preview';
           }
-        } catch (e) {
-          previewContainer.textContent = 'Error displaying SVG preview';
         }
       };
       reader.readAsText(file);
@@ -936,46 +1012,24 @@ const MediaCreative = {
       dropzone?.classList.remove('hidden');
     });
 
-    downloadSvgBtn?.addEventListener('click', () => {
+    optBtn?.addEventListener('click', () => {
+      if (!this.svgContent) return;
       const optimized = this.optimizeSvg(this.svgContent);
       const blob = new Blob([optimized], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'optimized.svg';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     });
 
-    downloadPngBtn?.addEventListener('click', () => {
-      const scale = parseInt(scaleSelect?.value || '2', 10);
-      const optimized = this.optimizeSvg(this.svgContent);
-      const blob = new Blob([optimized], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = (img.naturalWidth || 800) * scale;
-        canvas.height = (img.naturalHeight || 800) * scale;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        canvas.toBlob((pngBlob) => {
-          if (!pngBlob) return;
-          const pngUrl = URL.createObjectURL(pngBlob);
-          const a = document.createElement('a');
-          a.href = pngUrl;
-          a.download = `rendered-${scale}x.png`;
-          a.click();
-          URL.revokeObjectURL(pngUrl);
-          URL.revokeObjectURL(url);
-        }, 'image/png');
-      };
-      img.src = url;
-    });
+    btn1x?.addEventListener('click', () => renderPng(1));
+    btn2x?.addEventListener('click', () => renderPng(2));
+    btn4x?.addEventListener('click', () => renderPng(4));
+    btnIco?.addEventListener('click', () => renderIco());
   },
 
   sanitizeSvg(svgStr) {
@@ -1006,13 +1060,9 @@ const MediaCreative = {
 
     const isSafeUrl = (url) => {
       const trimmed = String(url).replace(/[\x00-\x20\s]/g, '').toLowerCase();
-      if (trimmed.startsWith('#') || trimmed.startsWith('/') || trimmed.startsWith('data:image/')) return true;
-      try {
-        const parsed = new URL(trimmed, 'https://example.com');
-        return ['http:', 'https:', 'blob:'].includes(parsed.protocol);
-      } catch {
-        return false;
-      }
+      // Strictly disallow external http/https requests to prevent IP tracking and canvas tainting
+      if (trimmed.startsWith('#') || trimmed.startsWith('data:image/') || trimmed.startsWith('blob:')) return true;
+      return false;
     };
 
     svgEl.querySelectorAll('*').forEach(el => {
@@ -1039,9 +1089,7 @@ const MediaCreative = {
   }
 };
 
-if (typeof window !== "undefined") {
-  window.MediaCreative = MediaCreative;
-}
-if (typeof module !== "undefined" && module.exports) {
+if (typeof window !== 'undefined') window.MediaCreative = MediaCreative;
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = MediaCreative;
 }
